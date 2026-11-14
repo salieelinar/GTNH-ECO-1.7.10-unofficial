@@ -7,10 +7,14 @@ import cn.dancingsnow.neoecoae.platform.nbt.CompoundTag;
 import cn.dancingsnow.neoecoae.platform.nbt.ListTag;
 import cn.dancingsnow.neoecoae.platform.nbt.Tag;
 
-/** Summary of every associated machine cycle, with a separately paged tooltip detail list. */
+/**
+ * Summary of every associated machine cycle, with a separately paged tooltip detail list. {@code globalProgress} is
+ * the job-level share of this output already completed (delivered for the final output, dispatched for the rest),
+ * which unlike the per-cycle {@code progress} does not restart for every machine cycle.
+ */
 @com.github.bsideup.jabel.Desugar
 public record ECOProcessingProgress(float progress, boolean hasProgress, State state, int machineCount, int detailPage,
-    boolean refreshing, List<Machine> machines) {
+    boolean refreshing, List<Machine> machines, float globalProgress, boolean hasGlobalProgress) {
 
     public static final int DETAIL_PAGE_SIZE = 3;
     public static final int SHORT_CYCLE_TICKS = 5;
@@ -21,11 +25,29 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
         0,
         -1,
         false,
-        cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.listOf());
+        cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.listOf(),
+        0,
+        false);
 
     public ECOProcessingProgress {
         progress = Float.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+        globalProgress = hasGlobalProgress && Float.isFinite(globalProgress) ? Math.max(0, Math.min(1, globalProgress))
+            : 0;
         machines = cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.listCopyOf(machines);
+    }
+
+    /** The same sample with the job-level completion share attached; tolerant code paths may not have it. */
+    public ECOProcessingProgress withGlobalProgress(float value) {
+        return new ECOProcessingProgress(
+            progress,
+            hasProgress,
+            state,
+            machineCount,
+            detailPage,
+            refreshing,
+            machines,
+            value,
+            true);
     }
 
     public static ECOProcessingProgress summarize(List<Machine> machines) {
@@ -48,12 +70,23 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             machines.size(),
             0,
             false,
-            machines);
+            machines,
+            0,
+            false);
     }
 
     public ECOProcessingProgress refreshing(boolean value) {
         return value == refreshing ? this
-            : new ECOProcessingProgress(progress, hasProgress, state, machineCount, detailPage, value, machines);
+            : new ECOProcessingProgress(
+                progress,
+                hasProgress,
+                state,
+                machineCount,
+                detailPage,
+                value,
+                machines,
+                globalProgress,
+                hasGlobalProgress);
     }
 
     /** Negative page means a summary only. Paging never changes the all-machine aggregate. */
@@ -69,7 +102,9 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             page,
             refreshing,
             page < 0 ? cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.listOf()
-                : machines.subList(start, Math.min(machines.size(), start + DETAIL_PAGE_SIZE)));
+                : machines.subList(start, Math.min(machines.size(), start + DETAIL_PAGE_SIZE)),
+            globalProgress,
+            hasGlobalProgress);
     }
 
     public int pages() {
@@ -112,7 +147,9 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             machineCount,
             detailPage,
             refreshing,
-            trimmed == null ? machines : trimmed);
+            trimmed == null ? machines : trimmed,
+            globalProgress,
+            hasGlobalProgress);
     }
 
     public CompoundTag write() {
@@ -123,6 +160,8 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
         tag.putInt("count", machineCount);
         tag.putInt("page", detailPage);
         tag.putBoolean("refreshing", refreshing);
+        tag.putDouble("global", globalProgress);
+        tag.putBoolean("hasGlobal", hasGlobalProgress);
         var list = new ListTag();
         for (var machine : machines) {
             var entry = new CompoundTag();
@@ -173,7 +212,9 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             Math.max(0, tag.getInt("count")),
             tag.getInt("page"),
             tag.getBoolean("refreshing"),
-            machines);
+            machines,
+            (float) tag.getDouble("global"),
+            tag.getBoolean("hasGlobal"));
     }
 
     private static State state(String value) {

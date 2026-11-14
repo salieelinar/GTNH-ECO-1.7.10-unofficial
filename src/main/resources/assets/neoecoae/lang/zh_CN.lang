@@ -1402,6 +1402,7 @@ gui.neoecoae.storage.cell_priority.title=存储盘优先级
 gui.neoecoae.storage.cell_priority.value=存储盘优先级：%s
 gui.neoecoae.storage.cell_priority.open=光标为空时右键：调整此盘优先级
 gui.neoecoae.processing.machine=加工机器
+gui.neoecoae.processing.global_progress=全局进度
 gui.neoecoae.processing.unloaded=机器所在区块尚未加载
 gui.neoecoae.processing.unformed=多方块结构未形成
 gui.neoecoae.processing.stalled=机器报告当前加工批次停滞

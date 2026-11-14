@@ -103,6 +103,9 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
     private static final int TABLE_Y = 27;
     private static final int CELL_WIDTH = 67;
     private static final int CELL_HEIGHT = 22;
+    /** Job-level completion strip along the bottom edge of a cell, above the per-cycle fill. */
+    private static final int GLOBAL_BAR_HEIGHT = 2;
+    private static final int GLOBAL_BAR_COLOR = 0xE04FC3F7;
     private static final int ROW_PITCH = CELL_HEIGHT + 1;
     private static final int COLUMNS = 3;
     private static final int BASE_ROWS = 7;
@@ -637,6 +640,19 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         int right = cellX + CELL_WIDTH, bottom = cellY + CELL_HEIGHT;
         if (filled < CELL_WIDTH) Gui.drawRect(cellX + filled, cellY, right, bottom, rgb | 0x30000000);
         if (filled > 0) Gui.drawRect(cellX, cellY, cellX + filled, bottom, rgb | 0x90000000);
+        if (progress.hasGlobalProgress()) drawGlobalBar(progress.globalProgress(), cellX, cellY);
+    }
+
+    /**
+     * Job-level completion strip along the cell's bottom edge: the per-cycle fill above it restarts with every
+     * recipe cycle, this one only moves towards the requested amount.
+     */
+    private static void drawGlobalBar(float fraction, int cellX, int cellY) {
+        int top = cellY + CELL_HEIGHT - GLOBAL_BAR_HEIGHT;
+        int right = cellX + CELL_WIDTH, bottom = cellY + CELL_HEIGHT;
+        Gui.drawRect(cellX, top, right, bottom, 0x50FFFFFF);
+        int filled = Math.round(CELL_WIDTH * Math.max(0f, Math.min(1f, fraction)));
+        if (filled > 0) Gui.drawRect(cellX, top, cellX + filled, bottom, GLOBAL_BAR_COLOR);
     }
 
     private ECOProcessingProgress progressOf(CraftingCpuEntry entry) {
@@ -784,6 +800,13 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
                 entry.hasPendingAmount(),
                 processingMonitored,
                 progress));
+        if (progress.hasGlobalProgress()) {
+            rows.add(
+                ProcessingTooltip.Row.text(
+                    I18n.format("gui.neoecoae.processing.global_progress"),
+                    Math.round(progress.globalProgress() * 100) + "%"));
+            rows.add(ProcessingTooltip.Row.progress(progress.globalProgress(), ProcessingTooltip.CYAN, 0xFF332E3B));
+        }
         for (String line : nativeTooltip(visual)) rows.add(ProcessingTooltip.Row.hint(line));
         rows.add(ProcessingTooltip.Row.separator());
         rows.add(ProcessingTooltip.Row.hint(I18n.format("gui.neoecoae.processing.context_hint")));
@@ -894,6 +917,7 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
             int filled = progress.hasProgress() ? Math.round(CELL_WIDTH * progress.progress()) : 0;
             Gui.drawRect(TASK_X + filled, y, TASK_X + CELL_WIDTH, y + CELL_HEIGHT, rgb | 0x30000000);
             if (filled > 0) Gui.drawRect(TASK_X, y, TASK_X + filled, y + CELL_HEIGHT, rgb | 0x90000000);
+            if (progress.hasGlobalProgress()) drawGlobalBar(progress.globalProgress(), TASK_X, y);
             IAEStack<?> visual = entry.getVisualStack();
             if (visual != null) drawStack(visual, TASK_X + CELL_WIDTH - 19, y + 3);
             drawTaskText(Platform.getItemDisplayName(entry.getStack()), TASK_X + 3, y + 3);

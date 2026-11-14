@@ -1402,6 +1402,7 @@ gui.neoecoae.storage.cell_priority.title=Cell Priority
 gui.neoecoae.storage.cell_priority.value=Cell priority: %s
 gui.neoecoae.storage.cell_priority.open=Right-click with an empty cursor to adjust this cell priority
 gui.neoecoae.processing.machine=Processing machine
+gui.neoecoae.processing.global_progress=Overall progress
 gui.neoecoae.processing.unloaded=Machine chunk is not loaded
 gui.neoecoae.processing.unformed=Multiblock structure is not formed
 gui.neoecoae.processing.stalled=The machine reports that its current cycle has stalled

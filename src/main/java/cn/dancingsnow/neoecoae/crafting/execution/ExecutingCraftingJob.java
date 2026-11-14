@@ -94,6 +94,8 @@ public class ExecutingCraftingJob {
     transient int tasksRevision;
     final Map<AEKey, java.math.BigInteger> deferredStock = new LinkedHashMap<>();
     final Map<AEKey, java.math.BigInteger> deferredEmitted = new LinkedHashMap<>();
+    /** Planned emission total per output, recorded once when the job is created: the global progress denominator. */
+    final Map<AEKey, java.math.BigInteger> planTotals = new LinkedHashMap<>();
     /** Outputs of successful multi-craft dispatches in this job, used by the ECO status page. */
     final Set<AEKey> batchedOutputs = new HashSet<>();
     final Set<AEKey> stoppedProcessingOutputs = new HashSet<>();
@@ -149,7 +151,11 @@ public class ExecutingCraftingJob {
                 entry.getLongValue(),
                 entry.getKey()
                     .getType());
+            if (entry.getLongValue() > 0L)
+                planTotals.put(entry.getKey(), java.math.BigInteger.valueOf(entry.getLongValue()));
         }
+        if (this.finalOutput != null && this.finalOutput.amount() > 0L)
+            planTotals.putIfAbsent(this.finalOutput.what(), java.math.BigInteger.valueOf(this.finalOutput.amount()));
         // EAEP's vanilla/quantum mixins do not run on ECO's independent executor.
         // Use the normal persisted ledger so missing inputs survive reload and follow normal insertion/cancellation.
 
@@ -276,6 +282,8 @@ public class ExecutingCraftingJob {
         exactOrder = data.getBoolean("exactOrder");
         readDeferred(data, "deferredStock", deferredStock, registries);
         readDeferred(data, "deferredEmitted", deferredEmitted, registries);
+        readDeferred(data, "planTotals", planTotals, registries);
+        if (planTotals.isEmpty()) rebuildPlanTotalsFromTasks();
         ECOExecutionRuntime restoredRuntime = null;
         boolean executionMetadataLost = data.getBoolean(NBT_EXECUTION_PERSISTENCE_FAILED)
             || exactOrder && taskDefinitionLost;
@@ -438,6 +446,7 @@ public class ExecutingCraftingJob {
         data.put("fuzzyPlanningItemIds", fuzzyItems);
         writeDeferred(data, "deferredStock", deferredStock, registries);
         writeDeferred(data, "deferredEmitted", deferredEmitted, registries);
+        writeDeferred(data, "planTotals", planTotals, registries);
         if (this.playerId != null) {
             data.putInt(NBT_PLAYER_ID, this.playerId);
         }
@@ -500,6 +509,8 @@ public class ExecutingCraftingJob {
                 entry.getLongValue(),
                 entry.getKey()
                     .getType());
+            if (entry.getLongValue() > 0L) planTotals
+                .merge(entry.getKey(), java.math.BigInteger.valueOf(entry.getLongValue()), java.math.BigInteger::add);
         }
         for (var entry : plan.patternTimes()
             .entrySet()) {
@@ -550,6 +561,23 @@ public class ExecutingCraftingJob {
         var inventory = new cn.dancingsnow.neoecoae.api.me.bigorder.ECOExactInventory(listener::onCraftingDifference);
         inventory.setEnabled(true);
         return inventory;
+    }
+
+    /** Restores the progress denominators for plans saved before {@code planTotals} was persisted. */
+    private void rebuildPlanTotalsFromTasks() {
+        for (var entry : tasks.entrySet()) {
+            var total = entry.getValue()
+                .totalExact();
+            if (total == null || total.signum() <= 0) continue;
+            for (var output : entry.getKey()
+                .getOutputs()) {
+                if (output.amount() <= 0L) continue;
+                planTotals.merge(
+                    output.what(),
+                    total.multiply(java.math.BigInteger.valueOf(output.amount())),
+                    java.math.BigInteger::add);
+            }
+        }
     }
 
     private static void writeDeferred(CompoundTag data, String name, Map<AEKey, java.math.BigInteger> amounts,
