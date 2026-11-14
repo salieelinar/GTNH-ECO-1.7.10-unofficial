@@ -30,6 +30,8 @@ final class ECOCraftingOutputDelivery {
 
     private final ECOCraftingCPULogic host;
     private final Object2LongLinkedOpenHashMap<AEKey> pendingFinalOutputs = new Object2LongLinkedOpenHashMap<>();
+    /** One diagnostic line per job output key proving that physical receipts feed the global progress. */
+    private final java.util.Set<AEKey> receivedKeys = new java.util.HashSet<>();
     private boolean deliveringFinalOutput;
     private boolean receivingExactOutput;
     private @Nullable ExecutingCraftingJob blockedDeliveryJob;
@@ -192,6 +194,11 @@ final class ECOCraftingOutputDelivery {
             host.taskSchedulerForOutput()
                 .recordPhysicalInsert(what);
             current.waitingFor.extract(what, accepted, Actionable.MODULATE);
+            current.producedTotals.merge(what, java.math.BigInteger.valueOf(accepted), java.math.BigInteger::add);
+            if (!receivedKeys.contains(what) && receivedKeys.size() < 24) {
+                receivedKeys.add(what);
+                LOGGER.info("[ECO-GLOBAL] physical return {} x{}", what, accepted);
+            }
             host.recordCompletedCraftingWork(accepted, what.getType());
             host.markCpuDirty();
             host.taskSchedulerForOutput()
@@ -267,6 +274,7 @@ final class ECOCraftingOutputDelivery {
                     claimed.min(max)
                         .longValueExact(),
                     key.getType());
+                current.producedTotals.merge(key, claimed, java.math.BigInteger::add);
                 host.taskSchedulerForOutput()
                     .recordPhysicalInsert(key);
                 host.taskSchedulerForOutput()
@@ -367,6 +375,8 @@ final class ECOCraftingOutputDelivery {
             claim,
             request.actualKey()
                 .getType());
+        current.producedTotals
+            .merge(request.actualKey(), java.math.BigInteger.valueOf(claim), java.math.BigInteger::add);
         if (finalOutputClaim) {
             current.remainingAmount = Math.max(0L, current.remainingAmount - route.deliveredAmount());
         }

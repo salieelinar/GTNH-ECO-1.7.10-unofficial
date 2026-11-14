@@ -96,6 +96,8 @@ public class ExecutingCraftingJob {
     final Map<AEKey, java.math.BigInteger> deferredEmitted = new LinkedHashMap<>();
     /** Planned emission total per output, recorded once when the job is created: the global progress denominator. */
     final Map<AEKey, java.math.BigInteger> planTotals = new LinkedHashMap<>();
+    /** Physically returned output amounts per key: the global progress numerator for non-final outputs. */
+    final Map<AEKey, java.math.BigInteger> producedTotals = new LinkedHashMap<>();
     /** Outputs of successful multi-craft dispatches in this job, used by the ECO status page. */
     final Set<AEKey> batchedOutputs = new HashSet<>();
     final Set<AEKey> stoppedProcessingOutputs = new HashSet<>();
@@ -298,6 +300,7 @@ public class ExecutingCraftingJob {
         readDeferred(data, "deferredStock", deferredStock, registries);
         readDeferred(data, "deferredEmitted", deferredEmitted, registries);
         readDeferred(data, "planTotals", planTotals, registries);
+        readDeferred(data, "producedTotals", producedTotals, registries);
         if (planTotals.isEmpty()) rebuildPlanTotalsFromTasks();
         ECOExecutionRuntime restoredRuntime = null;
         boolean executionMetadataLost = data.getBoolean(NBT_EXECUTION_PERSISTENCE_FAILED)
@@ -463,6 +466,7 @@ public class ExecutingCraftingJob {
         writeDeferred(data, "deferredStock", deferredStock, registries);
         writeDeferred(data, "deferredEmitted", deferredEmitted, registries);
         writeDeferred(data, "planTotals", planTotals, registries);
+        writeDeferred(data, "producedTotals", producedTotals, registries);
         if (this.playerId != null) {
             data.putInt(NBT_PLAYER_ID, this.playerId);
         }

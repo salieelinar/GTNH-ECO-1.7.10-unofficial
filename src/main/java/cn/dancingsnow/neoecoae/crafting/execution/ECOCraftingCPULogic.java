@@ -689,7 +689,12 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
     public cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress getProcessingProgress(AEKey output,
         boolean priority) {
         var world = cpu.getLevel();
-        if (job == null || (getWaitingFor(output) <= 0 && getPendingOutputs(output) <= 0) || world == null)
+        var current = job;
+        if (current == null || world == null)
+            return cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress.EMPTY;
+        var produced = current.producedTotals.get(output);
+        if (getWaitingFor(output) <= 0 && getPendingOutputs(output) <= 0
+            && (produced == null || produced.signum() <= 0))
             return cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress.EMPTY;
         var sampled = processingMonitor.sample(world, output, world.getTotalWorldTime(), priority);
         return attachGlobalProgress(output, sampled);
@@ -697,26 +702,28 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
 
     /**
      * Adds the job-level share of this output that is already done. The final output counts delivered items only;
-     * every other output counts dispatched amount, because intermediate production is consumed by later steps and
-     * has no delivery ledger of its own.
+     * every other output counts physically returned items, because dispatched-but-not-yet-produced batches must not
+     * count as progress (the machines may still be working on them).
      */
     private cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress attachGlobalProgress(AEKey output,
         cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress progress) {
         var current = job;
         if (current == null) return progress;
         long total;
-        long remaining;
+        long completed;
         if (current.finalOutput != null && output.equals(current.finalOutput.what())) {
             total = current.finalOutput.amount();
-            remaining = Math.max(0L, current.remainingAmount);
+            completed = total - Math.max(0L, current.remainingAmount);
         } else {
             var planned = current.planTotals.get(output);
             if (planned == null || planned.signum() <= 0) return progress;
             total = cn.dancingsnow.neoecoae.crafting.adapter.ae2.ECOExactCraftingPlan.bounded(planned);
-            remaining = Math.max(0L, getPendingOutputs(output));
+            var produced = current.producedTotals.get(output);
+            completed = produced == null ? 0L
+                : cn.dancingsnow.neoecoae.crafting.adapter.ae2.ECOExactCraftingPlan.bounded(produced);
         }
         if (total <= 0L) return progress;
-        double done = 1d - (double) remaining / (double) total;
+        double done = (double) completed / (double) total;
         return progress.withGlobalProgress((float) Math.max(0d, Math.min(1d, done)));
     }
 
