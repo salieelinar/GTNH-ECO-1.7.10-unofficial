@@ -8,7 +8,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = providers.gradleProperty("releaseVersion").getOrElse("1.0.0c5c")
+version = providers.gradleProperty("releaseVersion").getOrElse("1.0.3")
 // GTNH's generated Tags and mcmod.info read this extra property, rather than project.version.
 extra["modVersion"] = version.toString()
 
@@ -215,6 +215,7 @@ val verifyGtRuntimeProfile by tasks.registering {
         report.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(mapOf("verified_jars" to verified, "resolved_modules" to modules.map { it.toString() }))) + "\n")
     }
 }
+
 
 
 
