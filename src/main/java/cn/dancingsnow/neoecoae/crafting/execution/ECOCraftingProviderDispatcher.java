@@ -9,6 +9,7 @@ import org.jetbrains.annotations.Nullable;
 
 import appeng.api.networking.energy.IEnergyGrid;
 import cn.dancingsnow.neoecoae.api.me.diagnostics.ECOPatternPushDiagnostics;
+import cn.dancingsnow.neoecoae.api.me.pattern.ECOPatternWrappers;
 import cn.dancingsnow.neoecoae.api.me.provider.ECOIndeterminateBatchException;
 import cn.dancingsnow.neoecoae.api.me.provider.ECOParallelCraftingProviders;
 import cn.dancingsnow.neoecoae.crafting.execution.batch.ECOBatchAdmission;
@@ -19,6 +20,7 @@ import cn.dancingsnow.neoecoae.crafting.execution.fastpath.ECOFastPathStacks;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.CraftingCpuHelper;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.ICraftingProvider;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.IPatternDetails;
+import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativePatternDetails;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeProviderAdapters;
 import cn.dancingsnow.neoecoae.platform.minecraft.TickClock;
 
@@ -63,8 +65,9 @@ final class ECOCraftingProviderDispatcher {
     }
 
     /**
-     * Smart doubling off: ordinary dispatch is capped at the host's actual parallelism (at most 16,384).
-     * Every native medium follows the same limit; successful probes never grant a permanent capacity exemption.
+     * Smart doubling off: ordinary dispatch is capped at the host's actual parallelism (at most 16,384). GT's ME
+     * crafting input hatches are exempt: they are never busy and store every push whole, so they always receive
+     * everything.
      */
     private long dispatchLimit() {
         if (owner == null || owner.cpu == null) return Long.MAX_VALUE;
@@ -81,7 +84,7 @@ final class ECOCraftingProviderDispatcher {
         ECOCraftingDispatchBudget budget, IEnergyGrid energyService, ECODispatchStallDiagnostics diagnostics,
         Consumer<ICraftingProvider> markProviderAttempt, Runnable markNormalResume, ECOCraftingNormalPush normalPush) {
         long cappedLimit = dispatchLimit();
-        var request = originalRequest.allowedCrafts() <= cappedLimit ? originalRequest
+        var cappedRequest = originalRequest.allowedCrafts() <= cappedLimit ? originalRequest
             : new ECOCraftingDispatchRequest(
                 originalRequest.job(),
                 originalRequest.candidate(),
@@ -95,23 +98,23 @@ final class ECOCraftingProviderDispatcher {
         double singlePower = CraftingCpuHelper.calculatePatternPower(originalRequest.inputs());
 
         for (var provider : providers) {
+            boolean uncapped = isUnboundedHatch(provider);
+            long limit = uncapped ? Long.MAX_VALUE : cappedLimit;
+            var request = uncapped ? originalRequest : cappedRequest;
+
             boolean blocking = NativeProviderAdapters.isEnabled(provider);
             if (!blocking && request.job().exactOrder) {
-                var exact = cappedLimit == Long.MAX_VALUE
+                var exact = limit == Long.MAX_VALUE
                     ? fastPath.tryExactDispatch(request, provider, singlePower, energyService, markProviderAttempt)
-                    : fastPath.tryExactDispatch(
-                        request,
-                        provider,
-                        singlePower,
-                        energyService,
-                        markProviderAttempt,
-                        cappedLimit);
+                    : fastPath
+                        .tryExactDispatch(request, provider, singlePower, energyService, markProviderAttempt, limit);
                 if (exact != null) return Result
                     .accepted(cn.dancingsnow.neoecoae.crafting.adapter.ae2.ECOExactCraftingPlan.bounded(exact), true);
                 if (request.job().suspended) return Result.none();
             }
-            // Blocking media join the scaled lane too; eligibility still excludes known crafting locks.
+            // Blocking interfaces join the scaled lane too (smart doubling); eligibility excludes crafting locks.
             boolean scaledProvider = processing.supportsScaledDispatchCached(request, provider);
+            logCompatDispatch(request, provider, scaledProvider);
             if (scaledProvider) {
                 if (processing.isScaledAttemptBudgetExhausted(request.pattern())) {
                     // Exhausted submissions pause this pattern until the next tick; the provider did not fail.
@@ -312,6 +315,46 @@ final class ECOCraftingProviderDispatcher {
         }
         diagnostics.progress(TickClock.currentTick());
         return Result.accepted(accepted, false);
+    }
+
+    private static boolean isUnboundedHatch(ICraftingProvider provider) {
+        return provider instanceof cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider
+            && ((cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider) provider)
+                .isUnboundedPatternHatch();
+    }
+
+    private static final java.util.Set<String> LOGGED_COMPAT_DISPATCH = java.util.concurrent.ConcurrentHashMap
+        .newKeySet();
+
+    /** One line per provider/pattern combination while validating third-party pattern hatches. */
+    private static void logCompatDispatch(ECOCraftingDispatchRequest request, ICraftingProvider provider,
+        boolean scaled) {
+        if (!(provider instanceof cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider nativeProvider))
+            return;
+        String providerName = nativeProvider.nativeMedium()
+            .getClass()
+            .getName();
+        if (!providerName.startsWith("com.science.gtnl.") && !providerName.startsWith("com.tenkeitech.")) return;
+        IPatternDetails unwrapped = ECOPatternWrappers.unwrap(request.pattern());
+        String patternName = unwrapped instanceof NativePatternDetails nativeDetails ? nativeDetails.nativeDetails()
+            .getClass()
+            .getName()
+            : request.pattern()
+                .getClass()
+                .getName();
+        boolean fluid = unwrapped instanceof NativePatternDetails fluidDetails
+            && NativePatternDetails.isFluidProcessingPattern(fluidDetails.nativeDetails());
+        String key = providerName + '|' + patternName + '|' + scaled;
+        if (!LOGGED_COMPAT_DISPATCH.add(key) || LOGGED_COMPAT_DISPATCH.size() > 32) return;
+        LOGGER.info(
+            "[ECO-COMPAT] provider={} pattern={} scaled={} unbounded={} fluid={} externalPush={}",
+            providerName,
+            patternName,
+            scaled,
+            nativeProvider.isUnboundedPatternHatch(),
+            fluid,
+            request.pattern()
+                .supportsPushInputsToExternalInventory());
     }
 
     private static void failAmbiguousDispatch(ECOCraftingDispatchRequest request, ICraftingProvider provider,

@@ -1,11 +1,13 @@
 package cn.dancingsnow.neoecoae.platform.gt;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 
 import cn.dancingsnow.neoecoae.compat.gregtech.ECOGregTechMachineStatus;
@@ -53,7 +55,7 @@ final class GregTechMachineAccess {
                 false,
                 multi.mMachine,
                 result == null || result.wasSuccessful() ? null : result.getDisplayString(),
-                multi.lastParallel,
+                currentParallels(multi),
                 shutdown(host),
                 maintenanceIssues(multi),
                 false);
@@ -78,6 +80,32 @@ final class GregTechMachineAccess {
                 basic.mOutputBlocked > 0);
         }
         return null;
+    }
+
+    /**
+     * GT's own current parallel for the accepted recipe. {@code lastParallel} is only a legacy NBT field and is
+     * never updated by normal GT multiblocks; GTNL's custom assembly line also does not use ProcessingLogic, so fall
+     * back to its total output stack size (the recipe output is multiplied by the parallel count).
+     */
+    private static long currentParallels(MTEMultiBlockBase multi) {
+        try {
+            Field field = MTEMultiBlockBase.class.getDeclaredField("processingLogic");
+            field.setAccessible(true);
+            Object logic = field.get(multi);
+            if (logic != null) {
+                Method method = logic.getClass()
+                    .getMethod("getCurrentParallels");
+                int current = (Integer) method.invoke(logic);
+                if (current > 0) return current;
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // Older GT build or a machine with no ProcessingLogic; use the output-size fallback below.
+        }
+        long parallel = 0;
+        if (multi.mOutputItems != null) for (ItemStack stack : multi.mOutputItems) {
+            if (stack != null) parallel = Math.max(parallel, stack.stackSize);
+        }
+        return parallel > 0 ? parallel : Math.max(1, multi.lastParallel);
     }
 
     static boolean openGui(TileEntity tile, net.minecraft.entity.player.EntityPlayer player) {

@@ -20,7 +20,6 @@ import appeng.helpers.PatternHelper;
 import appeng.items.misc.ItemTunnelPattern;
 import appeng.me.cache.CraftingGridCache;
 import appeng.util.TunnelPatternExpander;
-import cn.dancingsnow.neoecoae.compat.proghatches.ProgrammableHatchCrafting;
 import cn.dancingsnow.neoecoae.platform.ae2.key.AEItemKey;
 import cn.dancingsnow.neoecoae.platform.ae2.key.AEKey;
 import cn.dancingsnow.neoecoae.platform.ae2.key.GenericStack;
@@ -35,7 +34,6 @@ public class NativePatternDetails implements IPatternDetails {
     private final IInput[] inputs;
     private final List<GenericStack> outputs;
     private final GenericStack[] sparse;
-    private final boolean linearProcessing;
 
     protected NativePatternDetails(ICraftingPatternDetails pattern, World world, Substitutes substitutes) {
         this(pattern, world, substitutes, pattern.getAEInputs(), pattern.getCondensedAEInputs());
@@ -49,9 +47,6 @@ public class NativePatternDetails implements IPatternDetails {
     private NativePatternDetails(ICraftingPatternDetails pattern, World world, Substitutes substitutes,
         IAEStack<?>[] nativeSparse, IAEStack<?>[] nativeInputs) {
         nativePattern = Objects.requireNonNull(pattern);
-        // Keep the multiplied native details and their IO intact; only establish eligibility here.
-        linearProcessing = ProgrammableHatchCrafting
-            .supportsScaledProcessingPattern(pattern, NativePatternDetails::isPlainProcessingPattern);
         definition = AEItemKey.of(pattern.getPattern());
         if (nativeSparse == null) throw new IllegalArgumentException("Null native sparse inputs");
         boolean dropEmpty = mightHaveEmptyInputs(pattern);
@@ -193,18 +188,51 @@ public class NativePatternDetails implements IPatternDetails {
         return nativePattern;
     }
 
-    /** Processing IO is probed without a class whitelist; known per-push patterns remain single-copy. */
-    private static boolean isPlainProcessingPattern(ICraftingPatternDetails pattern) {
-        if (pattern.isCraftable() || mightHaveEmptyInputs(pattern)) return false;
-        // Programmable Hatches counts chance rolls per push rather than from the supplied material amount.
-        ItemStack encoded = pattern.getPattern();
-        return encoded != null && (!encoded.hasTagCompound() || !encoded.getTagCompound()
-            .getBoolean("phChance"));
+    public boolean isCraftable() {
+        return nativePattern.isCraftable();
+    }
+
+    /**
+     * TenkeiTech's pattern views wrap the native pattern (circuit/catalyst filtering) or synthesize an auto-template
+     * processing pattern. Its hatches accept them through the ordinary ICraftingMedium push contract.
+     */
+    private static final String TENKEI_TRANSFORMED_PATTERN = "com.tenkeitech.ae.TransformedPatternDetails";
+    private static final String TENKEI_VIRTUAL_PATTERN = "com.tenkeitech.autotemplate.VirtualPatternDetails";
+    private static final String AE2FC_FLUID_PATTERN = "com.glodblock.github.util.FluidPatternDetails";
+    private static final ClassValue<Boolean> TENKEITECH_PROCESSING_PATTERNS = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if (TENKEI_TRANSFORMED_PATTERN.equals(c.getName()) || TENKEI_VIRTUAL_PATTERN.equals(c.getName()))
+                    return true;
+            return false;
+        }
+    };
+    private static final ClassValue<Boolean> FLUID_PROCESSING_PATTERNS = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if (AE2FC_FLUID_PATTERN.equals(c.getName())) return true;
+            return false;
+        }
+    };
+
+    /** Whether this native pattern is one of TenkeiTech's processing-pattern views. */
+    public static boolean isTenkeiTechProcessingPattern(ICraftingPatternDetails pattern) {
+        return pattern != null && TENKEITECH_PROCESSING_PATTERNS.get(pattern.getClass());
+    }
+
+    /** AE2FC's fluid pattern carries fluid inputs through the same ICraftingMedium push contract. */
+    public static boolean isFluidProcessingPattern(ICraftingPatternDetails pattern) {
+        return pattern != null && FLUID_PROCESSING_PATTERNS.get(pattern.getClass());
     }
 
     @Override
     public boolean supportsPushInputsToExternalInventory() {
-        return linearProcessing;
+        return !nativePattern.isCraftable()
+            && (nativePattern.getClass() == PatternHelper.class || isTenkeiTechProcessingPattern(nativePattern));
     }
 
     public final GenericStack[] getSparseInputs() {

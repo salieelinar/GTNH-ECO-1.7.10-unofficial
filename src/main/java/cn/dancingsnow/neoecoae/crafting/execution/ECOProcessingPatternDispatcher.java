@@ -15,9 +15,9 @@ import cn.dancingsnow.neoecoae.crafting.execution.batch.ECOBatchExecutor;
 import cn.dancingsnow.neoecoae.crafting.execution.batch.ECOBatchMode;
 import cn.dancingsnow.neoecoae.crafting.execution.fastpath.ECOBatchCraftingHelper;
 import cn.dancingsnow.neoecoae.crafting.execution.fastpath.ECOFastPathStacks;
+import cn.dancingsnow.neoecoae.platform.ae2.crafting.AEProcessingPattern;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.ICraftingProvider;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.IPatternDetails;
-import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativePatternDetails;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeProviderAdapters;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
@@ -128,10 +128,17 @@ final class ECOProcessingPatternDispatcher {
         if (!scaledTransportAllowed(provider) || isScaledAttemptBudgetExhausted(request.pattern())
             || isScaledDispatchDeferred(request, provider)
             || !supportsScaledDispatchCached(request, provider)) return null;
-        var nativeProvider = (NativeCraftingProvider) provider;
+        Object logic = providerLogic(provider);
+        // Unbounded pattern hatches store any push whole: offer everything material and energy allow at once,
+        // bounded only by the hatch's own int-stack representation. The first rejection hands control back to
+        // the normal probing ramp.
+        boolean offerAll = isUnboundedTarget(provider);
         // A plain-blocking interface takes exactly one push per empty target: that push carries the learned size.
         boolean singlePush = isSinglePushTarget(provider);
-        long transportLimit = nativeProvider.scaledProcessingCopyLimit(request.inputs());
+        long transportLimit = offerAll
+            ? cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider
+                .unboundedHatchCopyLimit(request.inputs())
+            : Long.MAX_VALUE;
 
         ProbeState state = states.computeIfAbsent(provider, x -> new Reference2ObjectOpenHashMap<>())
             .computeIfAbsent(request.pattern(), x -> new ProbeState());
@@ -147,8 +154,7 @@ final class ECOProcessingPatternDispatcher {
             && scaledTransportAllowed(provider)) {
             claimAttempt(request.pattern());
             visitAttempts++;
-            // Probes are real submissions: accepted chunks already own their share of the remaining order.
-            long offer = Math.min(ramp.offer(limit - ramp.owned), transportLimit);
+            long offer = Math.min(offerAll ? limit - ramp.owned : ramp.offer(limit - ramp.owned), transportLimit);
             var plan = planning.plan(offer, limit - ramp.owned, onePower, service, ECOBatchMode.LINEAR);
             if (plan == null) {
                 state.nextDispatchTick = tick + 1;
@@ -191,8 +197,7 @@ final class ECOProcessingPatternDispatcher {
                             request.level());
                         pushed[0] = true;
                         return normalPush.push(scaledRequest, provider)
-                            ? ECOBatchAdmission
-                                .accepted(batch.craftCount(), nativeProvider.isScaledProcessingFullyInserted())
+                            ? ECOBatchAdmission.accepted(batch.craftCount(), fullyInserted(logic))
                             : ECOBatchAdmission.rejected();
                     });
             } catch (ECOIndeterminateBatchException failure) {
@@ -211,6 +216,7 @@ final class ECOProcessingPatternDispatcher {
                     state.nextDispatchTick = state.nextFallbackTick = tick + 1;
                     break;
                 }
+                offerAll = false;
                 if (ramp.record(offer, 0, false, tick)) continue;
                 break;
             }
@@ -224,6 +230,11 @@ final class ECOProcessingPatternDispatcher {
             }
             if (!ramp.record(offer, admission.acceptedCrafts(), admission.canContinue(), tick)) break;
             if (singlePush) break;
+            if (offerAll && offer == transportLimit) {
+                // The hatch's stack-list growth, not a craft budget, bounds one tick for this target.
+                state.nextDispatchTick = state.nextFallbackTick = tick + 1;
+                break;
+            }
         }
         return ramp.owned > 0 ? scaledResult(request, ramp.owned) : null;
     }
@@ -235,7 +246,19 @@ final class ECOProcessingPatternDispatcher {
             ECOBatchCraftingHelper.multiply(ECOFastPathStacks.copyCounter(request.remainders()), copies));
     }
 
-    /** Blocking providers retain their own acceptance checks while ECO sizes each push. */
+    private static boolean fullyInserted(Object logic) {
+        return logic instanceof cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider
+            && ((cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider) logic)
+                .isScaledProcessingFullyInserted();
+    }
+
+    private static boolean isUnboundedTarget(ICraftingProvider provider) {
+        return provider instanceof cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider
+            && ((cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider) provider)
+                .isUnboundedPatternHatch();
+    }
+
+    /** Non-blocking providers, plus blocking interfaces that ECO may size with smart doubling. */
     static boolean scaledTransportAllowed(ICraftingProvider provider) {
         if (!NativeProviderAdapters.isEnabled(provider)) return true;
         return provider instanceof cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider
@@ -255,8 +278,14 @@ final class ECOProcessingPatternDispatcher {
     }
 
     private static boolean isProcessingPattern(Object pattern) {
-        return pattern instanceof NativePatternDetails
-            && ((NativePatternDetails) pattern).supportsPushInputsToExternalInventory();
+        if (pattern instanceof AEProcessingPattern) return true;
+        if (!(pattern instanceof NativePatternDetails details)) return false;
+        return NativePatternDetails.isTenkeiTechProcessingPattern(details.nativeDetails())
+            || NativePatternDetails.isFluidProcessingPattern(details.nativeDetails());
+    }
+
+    private static Object providerLogic(ICraftingProvider provider) {
+        return provider;
     }
 
     /**
@@ -270,16 +299,30 @@ final class ECOProcessingPatternDispatcher {
             return false;
         if (provider instanceof ECOParallelCraftingProvider) return false;
         IPatternDetails base = ECOPatternWrappers.unwrap(request.pattern());
+        var nativeProvider = (cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider) provider;
+        // Unbounded pattern hatches accept any non-craftable processing view through their own pushPattern
+        // contract. Bypass the PatternHelper/custom-view exact-class gate for them and let the hatch validate.
+        if (nativeProvider.isUnboundedPatternHatch() && base instanceof NativePatternDetails details
+            && !details.isCraftable()) {
+            return base == request.pattern() && request.pattern()
+                .getInputs().length > 0
+                && !request.pattern()
+                    .getOutputs()
+                    .isEmpty()
+                && nativeProvider.supportsScaledProcessing();
+        }
+        boolean fluidPattern = base instanceof NativePatternDetails fluidDetails
+            && NativePatternDetails.isFluidProcessingPattern(fluidDetails.nativeDetails());
+        if (fluidPattern && !nativeProvider.isUnboundedPatternHatch()) return false;
         return base == request.pattern() && isProcessingPattern(base)
             && request.pattern()
                 .getInputs().length > 0
             && !request.pattern()
                 .getOutputs()
                 .isEmpty()
-            && request.pattern()
-                .supportsPushInputsToExternalInventory()
-            && ((cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider) provider)
-                .supportsScaledProcessing();
+            && (request.pattern()
+                .supportsPushInputsToExternalInventory() || fluidPattern)
+            && nativeProvider.supportsScaledProcessing();
     }
 
     @com.github.bsideup.jabel.Desugar

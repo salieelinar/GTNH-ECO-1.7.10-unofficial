@@ -137,18 +137,19 @@ Groups require the same dimension, online ME network and logical frequency. Comp
 
 #### Exchange Multipliers
 
-| Topic | Normal | High-energy |
-|-------|--------|-------------|
-| Resource multiplier | **x2** threads, accelerators, and CPU storage | **x8** threads, accelerators, and CPU storage |
-| Power draw | **x4** | **x16** |
+| Hosts | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|-------|---|---|---|---|---|---|---|---|
+| Resource multiplier | **x1** | **x8** | **x27** | **x64** | **x125** | **x216** | **x343** | **x512** |
+
+The multiplier is **host-count cubed** and applies once to the group's total threads, accelerators, and CPU storage. Network switch tier still controls power draw and endgame eligibility; it no longer changes the resource multiplier.
 
 #### Shared Exchange Rules
 
 | Topic | Behavior |
 |-------|----------|
 | Activation | At least two linked C9 hosts are required. A single host remains at **x1**. |
-| Resource aggregation | Each physical host is evaluated independently, then its effective threads, accelerators, and storage are added to the ME network. |
-| Module mixing | Normal and high-energy modules can be mixed; each host contributes resources according to its installed module tier. |
+| Resource aggregation | Each physical host's base threads, accelerators, and storage are summed first, then multiplied by the group multiplier. |
+| Module mixing | Normal and high-energy modules can be mixed; the tier controls power draw and endgame eligibility, not the resource multiplier. |
 | Ultimate mode | Exactly **8 high-energy C9 hosts** in one logical group must each reach the configured maximum build length and have every upper and lower Computation Drive filled with a valid Flash Array. The aggregate CPU then uses **INT32_MAX (2,147,483,647)** threads and parallelism and **INT64_MAX (9,223,372,036,854,775,807 bytes)** storage. Active job bytes are still deducted from available storage; normal x2 hosts do not qualify. |
 
 ## Building the Structure

@@ -83,16 +83,8 @@ public class NEComputationCluster extends NECluster<NEComputationCluster>
 
     @Override
     public int getNetworkMultiplier() {
-        if (controller == null) {
-            return 1;
-        }
-        if (controller.hasHighEnergyNetworkSwitch()) {
-            return 8;
-        }
-        if (controller.hasNormalNetworkSwitch()) {
-            return 2;
-        }
-        return 1;
+        return networkCluster != null && networkCluster.getMembers()
+            .size() > 1 ? (int) networkCluster.getGroupMultiplier() : 1;
     }
 
     public int getNetworkMemberCount() {
