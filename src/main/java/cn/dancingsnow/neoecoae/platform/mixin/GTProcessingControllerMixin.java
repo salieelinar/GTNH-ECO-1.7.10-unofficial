@@ -23,4 +23,18 @@ public abstract class GTProcessingControllerMixin {
         if (tile instanceof TileEntity)
             NativeProcessingMachines.observeGregTechController(this, (TileEntity) tile, callback.getReturnValueZ());
     }
+
+    /**
+     * TecTech-style multiblocks (Space Elevator, its project modules, ...) check their structure through
+     * {@code checkMachine_TT} instead of the {@code checkStructure} path above, so the input-hatch relation of those
+     * controllers was never observed and the crafting monitor could not resolve their recipe host.
+     */
+    @Inject(
+        method = "checkMachine_TT(Lgregtech/api/interfaces/tileentity/IGregTechTileEntity;)Z",
+        at = @At("RETURN"),
+        require = 0)
+    private void neoecoae$observeInputsTecTech(IGregTechTileEntity tile, CallbackInfoReturnable<Boolean> callback) {
+        if (tile instanceof TileEntity)
+            NativeProcessingMachines.observeGregTechController(this, (TileEntity) tile, callback.getReturnValueZ());
+    }
 }
