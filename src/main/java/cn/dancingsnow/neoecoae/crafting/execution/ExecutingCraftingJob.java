@@ -614,12 +614,6 @@ public class ExecutingCraftingJob {
                 planTotals.merge(output.what(), java.math.BigInteger.valueOf(amount), java.math.BigInteger::add);
             }
         }
-        org.apache.logging.log4j.LogManager.getLogger("neoecoae")
-            .info(
-                "[ECO-GLOBAL] denominators={} tasks={} executionPlan=true",
-                planTotals.size(),
-                plan.tasks()
-                    .size());
     }
 
     private static void writeDeferred(CompoundTag data, String name, Map<AEKey, java.math.BigInteger> amounts,
