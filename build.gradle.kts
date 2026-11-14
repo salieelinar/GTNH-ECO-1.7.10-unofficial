@@ -1,4 +1,4 @@
-
+﻿
 import java.util.zip.ZipFile
 import java.security.MessageDigest
 import groovy.json.JsonOutput
@@ -8,7 +8,7 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
-version = providers.gradleProperty("releaseVersion").getOrElse("1.0.0c5")
+version = providers.gradleProperty("releaseVersion").getOrElse("1.0.0c5a")
 // GTNH's generated Tags and mcmod.info read this extra property, rather than project.version.
 extra["modVersion"] = version.toString()
 
@@ -215,3 +215,4 @@ val verifyGtRuntimeProfile by tasks.registering {
         report.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(mapOf("verified_jars" to verified, "resolved_modules" to modules.map { it.toString() }))) + "\n")
     }
 }
+

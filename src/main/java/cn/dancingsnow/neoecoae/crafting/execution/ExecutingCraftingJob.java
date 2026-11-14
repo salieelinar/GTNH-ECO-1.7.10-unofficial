@@ -151,11 +151,7 @@ public class ExecutingCraftingJob {
                 entry.getLongValue(),
                 entry.getKey()
                     .getType());
-            if (entry.getLongValue() > 0L)
-                planTotals.put(entry.getKey(), java.math.BigInteger.valueOf(entry.getLongValue()));
         }
-        if (this.finalOutput != null && this.finalOutput.amount() > 0L)
-            planTotals.putIfAbsent(this.finalOutput.what(), java.math.BigInteger.valueOf(this.finalOutput.amount()));
         // EAEP's vanilla/quantum mixins do not run on ECO's independent executor.
         // Use the normal persisted ledger so missing inputs survive reload and follow normal insertion/cancellation.
 
@@ -180,6 +176,25 @@ public class ExecutingCraftingJob {
         // imported plans need EAEP automatic wrappers converted back to logical crafts.
 
         this.executionPlan = executionPlan;
+        if (executionPlan != null) {
+            // The execution plan is the authoritative source for per-output planned totals: plan.emittedItems()
+            // does not list every intermediate output, which left those cells without a global-progress bar.
+            fillPlanTotals(executionPlan);
+        } else {
+            for (var entry : plan.patternTimes()
+                .entrySet()) {
+                for (var output : entry.getKey()
+                    .getOutputs()) {
+                    if (output.amount() <= 0L) continue;
+                    planTotals.merge(
+                        output.what(),
+                        java.math.BigInteger.valueOf(NEMath.saturatingMultiply(output.amount(), entry.getValue())),
+                        java.math.BigInteger::add);
+                }
+            }
+        }
+        if (this.finalOutput != null && this.finalOutput.amount() > 0L)
+            planTotals.putIfAbsent(this.finalOutput.what(), java.math.BigInteger.valueOf(this.finalOutput.amount()));
         if (executionPlan != null) executionPlan.phases()
             .forEach(
                 phase -> seedKeys.addAll(
@@ -309,6 +324,7 @@ public class ExecutingCraftingJob {
         }
         this.executionPlan = restoredPlan;
         this.executionRuntime = restoredRuntime;
+        if (restoredPlan != null) fillPlanTotals(restoredPlan);
         if (restoredPlan != null) restoredPlan.phases()
             .forEach(
                 phase -> seedKeys.addAll(
@@ -578,6 +594,28 @@ public class ExecutingCraftingJob {
                     java.math.BigInteger::add);
             }
         }
+    }
+
+    /** Global-progress denominators from the frozen execution plan: planned output amount per key. */
+    private void fillPlanTotals(ECOExecutionPlan plan) {
+        planTotals.clear();
+        for (var task : plan.tasks()) {
+            long count = task.totalCount();
+            if (count <= 0L) continue;
+            for (var output : task.pattern()
+                .getOutputs()) {
+                if (output.amount() <= 0L) continue;
+                long amount = NEMath.saturatingMultiply(output.amount(), count);
+                if (amount <= 0L) continue;
+                planTotals.merge(output.what(), java.math.BigInteger.valueOf(amount), java.math.BigInteger::add);
+            }
+        }
+        org.apache.logging.log4j.LogManager.getLogger("neoecoae")
+            .info(
+                "[ECO-GLOBAL] denominators={} tasks={} executionPlan=true",
+                planTotals.size(),
+                plan.tasks()
+                    .size());
     }
 
     private static void writeDeferred(CompoundTag data, String name, Map<AEKey, java.math.BigInteger> amounts,
