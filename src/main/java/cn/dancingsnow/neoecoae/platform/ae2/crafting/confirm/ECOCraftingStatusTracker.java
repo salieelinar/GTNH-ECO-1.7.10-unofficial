@@ -213,7 +213,8 @@ public final class ECOCraftingStatusTracker {
             boolean detailed = key.equals(tracked.detailKey);
             ECOProcessingProgress progress = logic.getProcessingProgress(key, detailed || visible.contains(key));
             next.remove(key);
-            if (progress.machineCount() > 0 || progress.refreshing()) next.put(
+            // Waiting-for-materials steps have no machine samples yet, but their job-level share is still useful.
+            if (progress.machineCount() > 0 || progress.refreshing() || progress.hasGlobalProgress()) next.put(
                 key,
                 progress.forStatusSync()
                     .page(detailed ? tracked.detailPage : -1));

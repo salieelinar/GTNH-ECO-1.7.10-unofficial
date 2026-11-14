@@ -610,6 +610,8 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         ECOProcessingProgress progress = progressOf(entry);
         if (active && progress.hasProgress()) drawProgress(progress, overlay, cellX, cellY);
         else if (overlay != 0) Gui.drawRect(cellX, cellY, cellX + CELL_WIDTH, cellY + CELL_HEIGHT, overlay);
+        // The global strip does not depend on a running machine cycle: waiting-for-materials steps show it too.
+        if (progress.hasGlobalProgress()) drawGlobalBar(progress.globalProgress(), cellX, cellY);
         List<String> lines = new ArrayList<>(3);
         List<String> details = new ArrayList<>(4);
         if (entry.hasStoredAmount()) amountLine(GuiText.Stored.getLocal(), entry.getStoredAmount(), lines, details);
@@ -640,7 +642,6 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         int right = cellX + CELL_WIDTH, bottom = cellY + CELL_HEIGHT;
         if (filled < CELL_WIDTH) Gui.drawRect(cellX + filled, cellY, right, bottom, rgb | 0x30000000);
         if (filled > 0) Gui.drawRect(cellX, cellY, cellX + filled, bottom, rgb | 0x90000000);
-        if (progress.hasGlobalProgress()) drawGlobalBar(progress.globalProgress(), cellX, cellY);
     }
 
     /**
