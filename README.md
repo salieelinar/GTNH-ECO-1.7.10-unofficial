@@ -34,7 +34,8 @@
 
 ### 实时监控
 
-![实时监控](docs/images/zh_cn/real-time-monitoring.png)
+![实时监控](<img width="1317" height="1367" alt="image" src="https://github.com/user-attachments/assets/c7a6b4d9-7ff9-4a11-85ea-c5793d7a1014" />
+)
 
 提供任务库存与加工状态监控，展示关联机器、实际并行、加工进度、剩余时间及可用的停机原因。支持样板定位、远程打开机器与样板供应器，以及任务暂停、跟踪和取消。
 
