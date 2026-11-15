@@ -15,13 +15,14 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
 import appeng.api.storage.data.IAEStack;
+import cn.dancingsnow.neoecoae.crafting.display.format.DurationFormatter;
 import cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress;
 import cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress.State;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
 /**
- * 1.21.1's crafting list cards in the vanilla tooltip frame. Machine times remain in ticks.
+ * 1.21.1's crafting list cards in the vanilla tooltip frame. Machine durations are shown as wall-clock time.
  */
 @SideOnly(Side.CLIENT)
 public final class ProcessingTooltip {
@@ -176,9 +177,11 @@ public final class ProcessingTooltip {
                 rows.add(Row.progress((float) machine.progressTicks() / machine.durationTicks()));
                 rows.add(
                     Row.text(
-                        I18n.format(KEY + "time", machine.progressTicks(), machine.durationTicks()),
+                        I18n.format(KEY + "time", DurationFormatter.format(machine.durationTicks())),
                         machine.state() == State.RUNNING
-                            ? I18n.format(KEY + "remaining", machine.durationTicks() - machine.progressTicks())
+                            ? I18n.format(
+                                KEY + "remaining",
+                                DurationFormatter.formatRemaining(machine.durationTicks() - machine.progressTicks()))
                             : ""));
             }
             if (!machine.recipe()

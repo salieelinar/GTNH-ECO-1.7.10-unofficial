@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
@@ -18,6 +20,10 @@ import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 
 /** Native API linkage is isolated from the no-GT load path. */
 final class GregTechMachineAccess {
+
+    /** Last positive parallel seen for a machine cycle; the cycle's max progress identifies it. */
+    private static final Map<MTEMultiBlockBase, long[]> LAST_PARALLEL = Collections
+        .synchronizedMap(new WeakHashMap<>());
 
     private GregTechMachineAccess() {}
 
@@ -86,8 +92,30 @@ final class GregTechMachineAccess {
      * GT's own current parallel for the accepted recipe. {@code lastParallel} is only a legacy NBT field and is
      * never updated by normal GT multiblocks; GTNL's custom assembly line also does not use ProcessingLogic, so fall
      * back to its total output stack size (the recipe output is multiplied by the parallel count).
+     * <p>
+     * GT clears {@code ProcessingLogic.calculatedParallels} from {@code checkProcessing -> setupProcessingLogic} on
+     * every recipe check, so a status sample can land in the gap and read zero while the cycle still runs. Keep the
+     * last positive value for the current cycle ({@code mMaxProgresstime} identifies it) instead of falling back to
+     * 1 mid-recipe; batch-driven machines such as the component assembly line need this.
      */
     private static long currentParallels(MTEMultiBlockBase multi) {
+        long logic = processingLogicParallel(multi);
+        if (logic > 0) {
+            remember(multi, logic);
+            return logic;
+        }
+        long outputs = outputParallel(multi);
+        if (outputs > 0) {
+            remember(multi, outputs);
+            return outputs;
+        }
+        long[] cached = LAST_PARALLEL.get(multi);
+        if (multi.mMaxProgresstime > 0 && cached != null && cached[0] == multi.mMaxProgresstime) return cached[1];
+        if (multi.mMaxProgresstime <= 0) LAST_PARALLEL.remove(multi);
+        return Math.max(1, multi.lastParallel);
+    }
+
+    private static long processingLogicParallel(MTEMultiBlockBase multi) {
         try {
             Field field = MTEMultiBlockBase.class.getDeclaredField("processingLogic");
             field.setAccessible(true);
@@ -101,11 +129,20 @@ final class GregTechMachineAccess {
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             // Older GT build or a machine with no ProcessingLogic; use the output-size fallback below.
         }
+        return 0;
+    }
+
+    private static long outputParallel(MTEMultiBlockBase multi) {
         long parallel = 0;
         if (multi.mOutputItems != null) for (ItemStack stack : multi.mOutputItems) {
             if (stack != null) parallel = Math.max(parallel, stack.stackSize);
         }
-        return parallel > 0 ? parallel : Math.max(1, multi.lastParallel);
+        return parallel;
+    }
+
+    private static void remember(MTEMultiBlockBase multi, long parallel) {
+        if (multi.mMaxProgresstime > 0) LAST_PARALLEL.put(multi, new long[] { multi.mMaxProgresstime, parallel });
+        else LAST_PARALLEL.remove(multi);
     }
 
     static boolean openGui(TileEntity tile, net.minecraft.entity.player.EntityPlayer player) {
