@@ -41,6 +41,8 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
 
     public static final int PATTERN_COLUMNS = 9, BASE_PATTERN_ROWS = 4, MAX_CAPACITY_CARDS = 4, UPGRADE_SLOTS = 5,
         MAX_PATTERN_SLOTS = 72;
+    /** Last world tick in which a grid rebuilt its crafting catalog, so several interfaces share one rebuild. */
+    private static final java.util.Map<Object, Long> GRID_LAST_REBUILD = new java.util.WeakHashMap<>();
     private final ECOLargeIntegratedWorkingStationInterfaceBlockEntity host;
     private final appeng.tile.inventory.AppEngInternalInventory patterns = new appeng.tile.inventory.AppEngInternalInventory(
         this,
@@ -82,6 +84,7 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
     private boolean dirty = true, waitingForPulse, redstone;
     private GenericStack unlockStack;
     private int revision;
+    private boolean pendingProviderUpdate;
     private cn.dancingsnow.neoecoae.api.me.diagnostics.ECOProcessingTargetProvider.Target processingTarget;
 
     @Override
@@ -171,7 +174,44 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
     public void updatePatterns() {
         dirty = true;
         revision++;
-        requestProviderUpdate();
+        pendingProviderUpdate = true;
+    }
+
+    /** Node power/channel events never change which patterns exist; the cached list is recomputed lazily. */
+    public void invalidatePatterns() {
+        dirty = true;
+        revision++;
+    }
+
+    /**
+     * Posts the grid-wide pattern change at most once per tick per grid. AE2 rebuilds the whole grid crafting
+     * catalog for every such event, so one rebuild per tick replaces one rebuild per slot edit.
+     */
+    public void flushProviderUpdate() {
+        if (!pendingProviderUpdate) return;
+        if (!host.getMainNode()
+            .isReady() || host.getGridNode() == null) return;
+        long tick = host.getWorldObj() == null ? -1L
+            : host.getWorldObj()
+                .getTotalWorldTime();
+        Object gridKey = host.getMainNode()
+            .getGrid() == null ? null
+                : host.getMainNode()
+                    .getGrid()
+                    .nativeGrid();
+        if (gridKey != null && tick >= 0L) {
+            synchronized (GRID_LAST_REBUILD) {
+                Long last = GRID_LAST_REBUILD.get(gridKey);
+                if (last != null && last == tick) {
+                    // Another interface rebuilt this tick and that rebuild read live provider state; stay
+                    // pending so an edit made after it is retried on the next tick instead of being lost.
+                    return;
+                }
+                GRID_LAST_REBUILD.put(gridKey, tick);
+            }
+        }
+        pendingProviderUpdate = false;
+        ICraftingProvider.requestUpdate(host.getMainNode());
     }
 
     /** Re-advertise installed patterns when a script reload changes the machine catalog. */
@@ -281,7 +321,7 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
             && result.amount() >= unlockStack.amount()) {
             unlockStack = null;
             host.saveChanges();
-            requestProviderUpdate();
+            updatePatterns();
         }
     }
 
@@ -292,7 +332,7 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
             && result.amount() == unlockStack.amount()) {
             unlockStack = null;
             host.saveChanges();
-            requestProviderUpdate();
+            updatePatterns();
         }
     }
 
@@ -303,13 +343,8 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
         if (next != redstone) {
             redstone = next;
             host.saveChanges();
-            requestProviderUpdate();
+            updatePatterns();
         }
-    }
-
-    private void requestProviderUpdate() {
-        if (host.getMainNode()
-            .isReady() && host.getGridNode() != null) ICraftingProvider.requestUpdate(host.getMainNode());
     }
 
     @Override
@@ -320,9 +355,19 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
     @Override
     public void onChangeInventory(IInventory inventory, int slot, InvOperation operation, ItemStack removed,
         ItemStack added) {
+        if (sameSlotContents(removed, added)) return;
         host.saveChanges();
         host.markForClientUpdate();
         updatePatterns();
+    }
+
+    /** A write that keeps item, damage, size and NBT is pure churn from GUI resyncs, not an edit. */
+    private static boolean sameSlotContents(ItemStack removed, ItemStack added) {
+        if (ItemStacks.isEmpty(removed) || ItemStacks.isEmpty(added))
+            return ItemStacks.isEmpty(removed) && ItemStacks.isEmpty(added);
+        return removed.getItem() == added.getItem() && removed.getItemDamage() == added.getItemDamage()
+            && removed.stackSize == added.stackSize
+            && ItemStack.areItemStackTagsEqual(removed, added);
     }
 
     @Override
@@ -332,7 +377,7 @@ public final class LargeWorkstationPatternProvider implements ICraftingProvider,
             unlockStack = null;
         }
         host.saveChanges();
-        requestProviderUpdate();
+        updatePatterns();
     }
 
     public void writeToNBT(CompoundTag tag, HolderLookup.Provider registries) {

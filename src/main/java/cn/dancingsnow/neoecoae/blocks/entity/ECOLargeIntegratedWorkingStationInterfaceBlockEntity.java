@@ -233,6 +233,7 @@ public class ECOLargeIntegratedWorkingStationInterfaceBlockEntity
         if (worldObj != null && !worldObj.isRemote) {
             workstationProvider.refreshRecipes();
             workstationProvider.updateRedstoneState();
+            workstationProvider.flushProviderUpdate();
         }
     }
 
@@ -245,7 +246,7 @@ public class ECOLargeIntegratedWorkingStationInterfaceBlockEntity
     @Override
     public void onMainNodeStateChanged(NodeListener.State reason) {
         super.onMainNodeStateChanged(reason);
-        workstationProvider.updatePatterns();
+        workstationProvider.invalidatePatterns();
     }
 
     @Override
