@@ -4,7 +4,7 @@
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
-> **个人修复版**：基于上游 7.3.11，恢复 GTNL / TenkeiTech 超级样板舱的批量发配，加入计算子系统组网倍率，并在合成状态页增加全局进度条。改动见 [CHANGELOG](CHANGELOG.md)，下载见 [Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases)。
+> **个人修复版**：基于上游 7.3.12，保留上游全部修复与优化，并加入全局进度条等本地改动。改动见 [CHANGELOG](CHANGELOG.md)，下载见 [Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases)。
 
 本项目是 Neo ECO AE Extension（ECO）的官方 Minecraft 1.7.10 版本，面向 GT New Horizons。
 
