@@ -44,6 +44,7 @@ public class CommonProxy {
     }
 
     public void init(FMLInitializationEvent event) {
+        cn.dancingsnow.neoecoae.platform.ae2.key.AEKeyType.registerNativeTypes();
         cn.dancingsnow.neoecoae.crafting.execution.ECOProcessingMonitor.initialize();
         appeng.api.AEApi.instance()
             .registries()
@@ -73,7 +74,9 @@ public class CommonProxy {
     public void postInit(FMLPostInitializationEvent event) {
         cn.dancingsnow.neoecoae.platform.recipe.SourceRecipes.register();
         cn.dancingsnow.neoecoae.platform.gt.NativeGregTech.initialize();
-        if (cpw.mods.fml.common.Loader.isModLoaded("MineTweaker3"))
+        if (cpw.mods.fml.common.Loader.isModLoaded("MineTweaker3")) {
+            cn.dancingsnow.neoecoae.compat.crafttweaker.IntegratedWorkstationTweaker.register();
             cn.dancingsnow.neoecoae.compat.crafttweaker.LargeWorkstationTweaker.register();
+        }
     }
 }

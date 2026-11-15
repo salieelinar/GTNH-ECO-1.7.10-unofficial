@@ -10,6 +10,8 @@ import net.minecraftforge.common.util.ForgeDirection;
 
 import org.jetbrains.annotations.Nullable;
 
+import com.glodblock.github.common.tile.TileFluidAutoFiller;
+
 import appeng.api.networking.crafting.ICraftingMedium;
 import appeng.api.storage.data.IAEStack;
 import appeng.api.util.IInterfaceViewable;
@@ -148,6 +150,8 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
      * pushes on purpose, and LOCK_UNTIL_RESULT unlocks on one copy's outputs.
      */
     public boolean supportsScaledProcessing() {
+        // AE2FC's auto filler ignores the input table and emits one pattern output per push.
+        if (medium instanceof TileFluidAutoFiller) return false;
         if (isUnboundedPatternHatch()) return true;
         return medium instanceof appeng.helpers.DualityInterface
             && !hasCraftingLock((appeng.helpers.DualityInterface) medium);
