@@ -10,6 +10,11 @@
 
 为 ME 网络提供可扩展的存储、合成与计算多方块，支持集中仓储、批量制造与复杂任务规划。
 
+后续修复todolist
+1、完善镜像总成检测机制。
+2、引入泛洪算法。
+3、渲染兼容安洁莉卡。
+
 ## 版本支持
 
 <div align="center">
@@ -19,7 +24,7 @@
   </thead>
   <tbody>
     <tr>
-      <td align="center">2.9.0-RC1 及以上</td>
+      <td align="center">2.9.0-stable 及以上</td>
       <td align="center"><a href="https://github.com/Yang120231/GTNH-ECO-1.7.10/releases"><img src="https://img.shields.io/github/v/release/Yang120231/GTNH-ECO-1.7.10" alt="最新版本"></a></td>
     </tr>
   </tbody>
