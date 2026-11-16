@@ -731,7 +731,8 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         getMainNode().ifPresent(
             (grid, node) -> grid.getTickManager()
                 .wakeDevice(node));
-        requestCommunicationProviderUpdate();
+        // Tank contents do not change the advertised pattern set. Notifying AE2 here rebuilds the whole
+        // grid's crafting catalog, and the cooling tank is drained once per processing tick.
     }
 
     @Override
@@ -1286,7 +1287,6 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
             setProcessingTime(batch.progress);
 
             setChanged();
-            requestCommunicationProviderUpdate();
         }
     }
 
@@ -1387,7 +1387,6 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         if (overheated) preheating = false;
         if (changed) setChanged();
         if (previousLimit != getMaxBatchParallelism()) {
-            requestCommunicationProviderUpdate();
             getMainNode().ifPresent(
                 (grid, node) -> grid.getTickManager()
                     .wakeDevice(node));
@@ -1563,8 +1562,8 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         if (next != null) {
             setWorking(true);
         }
-
-        requestCommunicationProviderUpdate();
+        // Finishing a batch changes runtime state, not the advertised pattern set; a pattern-change event
+        // here would rebuild the whole grid's crafting catalog on every completed batch.
     }
 
     private boolean deliverBatchOutputs(PendingBatch batch) {
@@ -1634,6 +1633,12 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         }
     }
 
+    /**
+     * Announces a changed pattern set to AE2. AE2 rebuilds the whole grid's crafting catalog for every such event,
+     * so this is reserved for calls that can actually change which patterns the workstation advertises: formation
+     * or controller changes, pattern-slot edits (handled by {@code LargeWorkstationPatternProvider}), recipe reloads
+     * and crafting-lock changes. Tank, thermal and batch-progress updates must not call it.
+     */
     private void requestCommunicationProviderUpdate() {
         if (cluster != null && cluster
             .getCommunication() instanceof ECOLargeIntegratedWorkingStationInterfaceBlockEntity communication) {
