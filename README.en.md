@@ -8,6 +8,14 @@ This is the official Minecraft 1.7.10 version of Neo ECO AE Extension (ECO), bui
 
 Provides expandable storage, crafting, and computation multiblocks for ME networks, supporting centralized storage, batch manufacturing, and complex job planning.
 
+## Strict One-at-a-Time Dispatch (1.0.9)
+
+**Why**: Some machines (infusion, assembly lines, nightmare crafting tables, bacteria incubation tanks) confiscate extra or mixed-in materials. ECO's demand-scaled dispatch could push multiple copies, or another pattern's materials through the same interface, and those extras get voided, stalling the job. Upstream issue #19 proposes "pattern optimization off -> one copy at a time", but one copy can still be followed by another before the machine finishes. With the switch off, this build now uses **strict serial dispatch**: push one copy, wait until its outputs return to the AE network, then push the next one; other patterns on that interface wait meanwhile. Tested with 4 interleaved recipes in a bacteria incubation tank: one in, one out, no material loss.
+
+- Applies to: AE2 interfaces and GTNL super pattern input hatches/interfaces when their own "pattern optimization" switch is off.
+- Does not apply to: the assembler matrix (its switch is always off by design) or GT CRIB / TenkeiTech hatches (no switch).
+- Trade-off: lower throughput on that interface; intended only for material-eating machines. Strict mode only affects ECO's own dispatch.
+
 ## Version Support
 
 <div align="center">
