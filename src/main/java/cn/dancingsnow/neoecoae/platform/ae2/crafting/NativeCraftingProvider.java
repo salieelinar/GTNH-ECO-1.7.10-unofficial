@@ -1,5 +1,6 @@
 package cn.dancingsnow.neoecoae.platform.ae2.crafting;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,6 +25,7 @@ import cn.dancingsnow.neoecoae.api.me.diagnostics.ECOProcessingTargetProvider.Ta
 import cn.dancingsnow.neoecoae.api.me.provider.ECOIndeterminateBatchException;
 import cn.dancingsnow.neoecoae.blocks.entity.LargeWorkstationPatternProvider;
 import cn.dancingsnow.neoecoae.platform.ae2.key.AEKey;
+import cn.dancingsnow.neoecoae.platform.ae2.key.GenericStack;
 import cn.dancingsnow.neoecoae.platform.ae2.key.KeyCounter;
 import cn.dancingsnow.neoecoae.platform.gt.NativeGregTech;
 import cn.dancingsnow.neoecoae.platform.minecraft.BlockPos;
@@ -48,6 +50,7 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
         this.medium = java.util.Objects.requireNonNull(medium);
         this.patterns = Collections.unmodifiableList(new ArrayList<>(patterns));
         this.unboundedPatternHatch = UNBOUNDED_HATCH_TYPES.get(medium.getClass());
+        this.assemblerMatrix = ASSEMBLER_MATRIX_TYPES.get(medium.getClass());
         String mediumName = medium.getClass()
             .getName();
         if ((mediumName.startsWith("com.science.gtnl.") || mediumName.startsWith("com.tenkeitech."))
@@ -261,7 +264,33 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
             return false;
         }
     };
+    private static final ClassValue<Boolean> ASSEMBLER_MATRIX_TYPES = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if (GTNL_ASSEMBLER_MATRIX.equals(c.getName())) return true;
+            return false;
+        }
+    };
+    private static final ClassValue<AssemblerBatchAccess> ASSEMBLER_BATCH_ACCESS = new ClassValue<>() {
+
+        @Override
+        protected AssemblerBatchAccess computeValue(Class<?> type) {
+            try {
+                Method setter = type.getMethod("setAssemblerSize", long.class);
+                Method getter = type.getMethod("getAssemblerSize");
+                return setter.getReturnType() == void.class && getter.getReturnType() == long.class
+                    ? new AssemblerBatchAccess(setter, getter)
+                    : new AssemblerBatchAccess(null, null);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+                return new AssemblerBatchAccess(null, null);
+            }
+        }
+    };
     private final boolean unboundedPatternHatch;
+    /** GTNL's assembler matrix reads its batch multiplier from the crafting inventory, not from stack sizes. */
+    private final boolean assemblerMatrix;
 
     @Override
     public boolean pushPattern(IPatternDetails pattern, KeyCounter[] inputHolder) {
@@ -277,6 +306,9 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
         var nativePattern = (NativePatternDetails) physical;
         if (inputHolder.length != pattern.getInputs().length)
             throw new IllegalArgumentException("Source input dimensions differ from native pattern");
+        long copies = pattern instanceof cn.dancingsnow.neoecoae.compat.ae2.ECOProcessingExecutionPattern execution
+            ? execution.copies()
+            : 1L;
         MEInventoryCrafting table;
         if (pattern instanceof NativeCraftingPattern) {
             table = new MEInventoryCrafting(new ContainerNull(), 3, 3);
@@ -287,6 +319,10 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
                 (slot, stack) -> table.setInventorySlotContents(slot, appeng.util.item.AEItemStack.create(stack)));
             for (var counter : copy)
                 if (!counter.isEmpty()) throw new IllegalArgumentException("Unexpected native crafting input surplus");
+        } else if (assemblerMatrix) {
+            // GTNL resolves container returns from the physical pattern's sparse slot indices.
+            table = assemblerTable(nativePattern, inputHolder, copies);
+            if (table == null) return false;
         } else {
             var stacks = new ArrayList<IAEStack<?>>();
             for (var counter : inputHolder) for (var entry : counter) {
@@ -314,11 +350,8 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
             before.add(stack == null ? null : stack.copy());
             beforeItems.add(cn.dancingsnow.neoecoae.platform.minecraft.ItemStacks.copy(table.getStackInSlot(i)));
         }
+        if (assemblerMatrix && !applyAssemblerBatchSize(table, copies)) return false;
         boolean accepted;
-        long batchCrafts = pattern instanceof cn.dancingsnow.neoecoae.compat.ae2.ECOProcessingExecutionPattern execution
-            ? execution.copies()
-            : 1L;
-        applyAssemblerBatchSize(medium, table, batchCrafts);
         try {
             accepted = medium.pushPattern(nativePattern.nativeDetails(), table);
         } catch (RuntimeException failure) {
@@ -339,18 +372,54 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
         return accepted;
     }
 
-    /** GTNL's assembler matrix reads the long batch size from the mixed-in LargeInventoryCrafting. */
-    private static void applyAssemblerBatchSize(ICraftingMedium medium, MEInventoryCrafting table, long crafts) {
-        if (!GTNL_ASSEMBLER_MATRIX.equals(
-            medium.getClass()
-                .getName()))
-            return;
+    /** GTNL resolves container returns from the physical pattern's sparse slot indices. */
+    @Nullable
+    private static MEInventoryCrafting assemblerTable(NativePatternDetails pattern, KeyCounter[] inputHolder,
+        long copies) {
+        var remaining = new KeyCounter();
         try {
-            table.getClass()
-                .getMethod("setAssemblerSize", long.class)
-                .invoke(table, crafts);
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-            // The matrix will reject the batch through its own contract if the bridge is unavailable.
+            for (var counter : inputHolder) for (var entry : counter) {
+                if (entry.getLongValue() <= 0) throw new IllegalArgumentException("Nonpositive native dispatch input");
+                remaining.set(entry.getKey(), Math.addExact(remaining.get(entry.getKey()), entry.getLongValue()));
+            }
+            GenericStack[] sparse = pattern.getSparseInputs();
+            var table = new MEInventoryCrafting(new ContainerNull(), Math.max(1, sparse.length), 1);
+            for (int slot = 0; slot < sparse.length; slot++) {
+                GenericStack input = sparse[slot];
+                if (input == null || input.amount() <= 0L) continue;
+                long amount = Math.multiplyExact(input.amount(), copies);
+                if (remaining.get(input.what()) < amount) return null;
+                var stack = input.what()
+                    .toNative(amount);
+                if (stack == null) return null;
+                table.setInventorySlotContents(slot, stack);
+                remaining.remove(input.what(), amount);
+            }
+            return remaining.isEmpty() ? table : null;
+        } catch (ArithmeticException overflow) {
+            return null;
         }
     }
+
+    /**
+     * Refuses an unverified multiplier before the medium can claim any of the extracted inputs: without the long batch
+     * bridge only the native one-copy path may pass.
+     */
+    private static boolean applyAssemblerBatchSize(MEInventoryCrafting table, long copies) {
+        AssemblerBatchAccess access = ASSEMBLER_BATCH_ACCESS.get(table.getClass());
+        if (access.setter() == null || access.getter() == null) return copies == 1L;
+        try {
+            access.setter()
+                .invoke(table, copies);
+            return Long.valueOf(copies)
+                .equals(
+                    access.getter()
+                        .invoke(table));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return false;
+        }
+    }
+
+    @com.github.bsideup.jabel.Desugar
+    private record AssemblerBatchAccess(Method setter, Method getter) {}
 }

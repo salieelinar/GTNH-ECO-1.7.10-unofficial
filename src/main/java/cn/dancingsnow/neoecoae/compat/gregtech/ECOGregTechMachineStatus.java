@@ -183,7 +183,7 @@ public final class ECOGregTechMachineStatus {
             duration = 0;
             progress = 0;
         }
-        long parallel = duration > 0 ? Math.max(1L, sample.lastParallel()) : 0;
+        long parallel = duration > 0 ? Math.max(0L, sample.lastParallel()) : 0;
         return new Machine(name, location, "", progress, duration, parallel, state, reason);
     }
 

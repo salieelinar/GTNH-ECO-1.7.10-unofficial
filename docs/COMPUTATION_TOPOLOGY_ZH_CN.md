@@ -1,6 +1,6 @@
 # 计算子系统：结构验收与 ME 接入
 
-计算子系统默认用 StructureLib 1.4.47 验证与投影仪共用的结构定义。区块加载和邻居通知在服务端 tick 尾合并；未加载的位置不会被当作有效部件，也不会为检测强加载区块。已有自定义计算器的 addon 可继续使用自己的验收规则。
+计算子系统默认（`BATCHED`）只合并结构检测，不改验收规则与接线拓扑；需要更严格的 StructureLib 验收时，把 `config/neoecoae.cfg` 的 `multiblock.computationTopologyMode` 改为 `STRUCTURE_LIB` 或 `OPTIMIZED`。`OPTIMIZED` 用 StructureLib 1.4.47 验证与投影仪共用的结构定义，并按接线精简 ME 节点。区块加载和邻居通知在服务端 tick 尾合并；未加载的位置不会被当作有效部件，也不会为检测强加载区块。已有自定义计算器的 addon 可继续使用自己的验收规则。
 
 ## 旧存档接线
 
@@ -25,7 +25,7 @@
 | `LEGACY` | 原有逐成员检测 | 原有拓扑 |
 | `BATCHED` | 合并检测 | 原有拓扑 |
 | `STRUCTURE_LIB` | 合并检测并共享 StructureLib 验收 | 原有拓扑 |
-| `OPTIMIZED`（默认） | 合并检测并共享 StructureLib 验收 | 端口按需入网、有效变更保留现有簇 |
+| `OPTIMIZED`（可选，最激进） | 合并检测并共享 StructureLib 验收 | 端口按需入网、有效变更保留现有簇 |
 
 四种模式共用部分无变化过滤和缓存事件优化；`LEGACY` 不等同于改动前的 JAR。只比较 StructureLib 验收开销时，使用 `BATCHED` 和 `STRUCTURE_LIB`；对比整套优化时，另外用改动前的 JAR 作基线。
 

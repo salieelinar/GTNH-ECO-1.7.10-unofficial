@@ -47,9 +47,11 @@ public final class PlanningSettings {
         }
 
         @Config.Comment("Computation multiblocks: LEGACY scans on member load, BATCHED coalesces checks, STRUCTURE_LIB also shares the build definition, OPTIMIZED also reduces AE2 nodes.")
-        @Config.DefaultEnum("OPTIMIZED")
+        @Config.DefaultEnum("BATCHED")
         @Config.RequiresWorldRestart
-        public static ComputationTopologyMode computationTopologyMode = ComputationTopologyMode.OPTIMIZED;
+        // Batch the checks first: the stricter StructureLib acceptance and the trimmed topology stay opt-in so
+        // existing saves keep their formation rules and wiring until they are verified.
+        public static ComputationTopologyMode computationTopologyMode = ComputationTopologyMode.BATCHED;
 
         @Config.Comment("Maximum storage-system length")
         @Config.DefaultInt(15)

@@ -47,6 +47,16 @@ public final class NativeGregTech {
         return isAvailable() && GregTechMachineAccess.openGui(tile, player);
     }
 
+    /** A native recipe check completed: the accepted cycle's parallel is now authoritative. */
+    public static void recipeChecked(Object machine, boolean successful) {
+        if (isAvailable()) GregTechMachineAccess.recipeChecked(machine, successful);
+    }
+
+    /** A controller's NBT was restored: the persisted cycle may carry GT's own lastParallel. */
+    public static void recipeLoaded(Object machine) {
+        if (isAvailable()) GregTechMachineAccess.recipeLoaded(machine);
+    }
+
     /** Localized name of a GT meta tile entity (hatch, bus, machine), or null for any other tile. */
     public static String machineName(TileEntity tile) {
         return isAvailable() ? GregTechMachineAccess.machineName(tile) : null;

@@ -21,9 +21,44 @@ import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 /** Native API linkage is isolated from the no-GT load path. */
 final class GregTechMachineAccess {
 
-    /** Last positive parallel seen for a machine cycle; the cycle's max progress identifies it. */
-    private static final Map<MTEMultiBlockBase, long[]> LAST_PARALLEL = Collections
-        .synchronizedMap(new WeakHashMap<>());
+    /** Native processing logic, read reflectively so a GT build without it only disables the precise parallel. */
+    private static final Field PROCESSING_LOGIC = nativeField();
+    private static final Method CURRENT_PARALLELS = nativeMethod(
+        "gregtech.api.logic.ProcessingLogic",
+        "getCurrentParallels");
+    /** These two controllers compute their accepted parallel outside ProcessingLogic. */
+    private static final String ORE_FACTORY = "gregtech.common.tileentities.machines.multi.MTEIntegratedOreFactory";
+    private static final String ORE_FACTORY_LEGACY = "gregtech.common.tileentities.machines.multi.MTEIntegratedOreFactoryLegacy";
+    private static final ClassValue<Boolean> ORE_FACTORY_TYPES = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if (ORE_FACTORY.equals(c.getName()) || ORE_FACTORY_LEGACY.equals(c.getName())) return true;
+            return false;
+        }
+    };
+    /** Parallel captured at the recipe-check boundary of the running cycle; never crosses a cycle. */
+    private static final Map<MTEMultiBlockBase, CycleParallel> CYCLE_PARALLELS = new WeakHashMap<>();
+
+    private static Field nativeField() {
+        try {
+            Field field = MTEMultiBlockBase.class.getDeclaredField("processingLogic");
+            field.setAccessible(true);
+            return field;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static Method nativeMethod(String className, String name) {
+        try {
+            return Class.forName(className)
+                .getMethod(name);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
 
     private GregTechMachineAccess() {}
 
@@ -89,47 +124,62 @@ final class GregTechMachineAccess {
     }
 
     /**
-     * GT's own current parallel for the accepted recipe. {@code lastParallel} is only a legacy NBT field and is
-     * never updated by normal GT multiblocks; GTNL's custom assembly line also does not use ProcessingLogic, so fall
-     * back to its total output stack size (the recipe output is multiplied by the parallel count).
-     * <p>
-     * GT clears {@code ProcessingLogic.calculatedParallels} from {@code checkProcessing -> setupProcessingLogic} on
-     * every recipe check, so a status sample can land in the gap and read zero while the cycle still runs. Keep the
-     * last positive value for the current cycle ({@code mMaxProgresstime} identifies it) instead of falling back to
-     * 1 mid-recipe; batch-driven machines such as the component assembly line need this.
+     * Current parallel of the accepted recipe cycle. GT clears {@code ProcessingLogic.calculatedParallels} on every
+     * recipe check, so a status sample can land in the gap and read zero while the cycle still runs; the value is
+     * also not persisted across reloads. Keep the value captured at the cycle boundary instead of reusing a duration
+     * key or fabricating 1 — batch-driven machines such as the GTNL assembly line are the ones that depend on it.
      */
-    private static long currentParallels(MTEMultiBlockBase multi) {
-        long logic = processingLogicParallel(multi);
-        if (logic > 0) {
-            remember(multi, logic);
-            return logic;
+    static synchronized long currentParallels(MTEMultiBlockBase multi) {
+        if (multi.mMaxProgresstime <= 0) {
+            CYCLE_PARALLELS.remove(multi);
+            return 0;
         }
-        long outputs = outputParallel(multi);
-        if (outputs > 0) {
-            remember(multi, outputs);
-            return outputs;
+        long live = processingParallels(multi);
+        if (live > 0) {
+            rememberParallels(multi, live);
+            return live;
         }
-        long[] cached = LAST_PARALLEL.get(multi);
-        if (multi.mMaxProgresstime > 0 && cached != null && cached[0] == multi.mMaxProgresstime) return cached[1];
-        if (multi.mMaxProgresstime <= 0) LAST_PARALLEL.remove(multi);
-        return Math.max(1, multi.lastParallel);
+        CycleParallel cycle = CYCLE_PARALLELS.get(multi);
+        if (cycle != null && cycle.matches(multi)) {
+            cycle.progress = Math.max(0, multi.mProgresstime);
+            return cycle.parallel;
+        }
+        CYCLE_PARALLELS.remove(multi);
+        // GTNL's assembly line and other custom checkProcessing machines keep no ProcessingLogic value; their recipe
+        // output is multiplied by the parallel count, so the output stack is the only remaining estimate.
+        return outputParallel(multi);
     }
 
-    private static long processingLogicParallel(MTEMultiBlockBase multi) {
+    /** Every native recipe check begins a new cycle, even when its duration and outputs are unchanged. */
+    static synchronized void recipeChecked(Object machine, boolean successful) {
+        if (!(machine instanceof MTEMultiBlockBase multi)) return;
+        CYCLE_PARALLELS.remove(multi);
+        if (successful && multi.mMaxProgresstime > 0) rememberParallels(multi, processingParallels(multi));
+    }
+
+    /** GT's lastParallel NBT field describes the restored cycle only, not subsequent recipe checks. */
+    static synchronized void recipeLoaded(Object machine) {
+        if (!(machine instanceof MTEMultiBlockBase multi)) return;
+        CYCLE_PARALLELS.remove(multi);
+        if (multi.mMaxProgresstime <= 0 || PROCESSING_LOGIC == null) return;
         try {
-            Field field = MTEMultiBlockBase.class.getDeclaredField("processingLogic");
-            field.setAccessible(true);
-            Object logic = field.get(multi);
-            if (logic != null) {
-                Method method = logic.getClass()
-                    .getMethod("getCurrentParallels");
-                int current = (Integer) method.invoke(logic);
-                if (current > 0) return current;
-            }
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-            // Older GT build or a machine with no ProcessingLogic; use the output-size fallback below.
+            if (PROCESSING_LOGIC.get(multi) != null) rememberParallels(multi, multi.lastParallel);
+        } catch (IllegalAccessException | RuntimeException unavailable) {
+            // An unavailable native value stays unknown.
         }
-        return 0;
+    }
+
+    private static long processingParallels(MTEMultiBlockBase multi) {
+        try {
+            if (ORE_FACTORY_TYPES.get(multi.getClass())) return Math.max(0, multi.lastParallel);
+            if (PROCESSING_LOGIC == null || CURRENT_PARALLELS == null) return 0;
+            Object logic = PROCESSING_LOGIC.get(multi);
+            if (logic == null) return 0;
+            Object value = CURRENT_PARALLELS.invoke(logic);
+            return value instanceof Integer current ? Math.max(0, current) : 0;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return 0;
+        }
     }
 
     private static long outputParallel(MTEMultiBlockBase multi) {
@@ -140,9 +190,31 @@ final class GregTechMachineAccess {
         return parallel;
     }
 
-    private static void remember(MTEMultiBlockBase multi, long parallel) {
-        if (multi.mMaxProgresstime > 0) LAST_PARALLEL.put(multi, new long[] { multi.mMaxProgresstime, parallel });
-        else LAST_PARALLEL.remove(multi);
+    private static void rememberParallels(MTEMultiBlockBase multi, long parallel) {
+        if (parallel > 0) CYCLE_PARALLELS.put(multi, new CycleParallel(multi, parallel));
+    }
+
+    private static final class CycleParallel {
+
+        final long parallel;
+        final int duration;
+        final Object itemOutputs;
+        final Object fluidOutputs;
+        int progress;
+
+        CycleParallel(MTEMultiBlockBase multi, long parallel) {
+            this.parallel = parallel;
+            duration = multi.mMaxProgresstime;
+            itemOutputs = multi.mOutputItems;
+            fluidOutputs = multi.mOutputFluids;
+            progress = Math.max(0, multi.mProgresstime);
+        }
+
+        boolean matches(MTEMultiBlockBase multi) {
+            return duration == multi.mMaxProgresstime && itemOutputs == multi.mOutputItems
+                && fluidOutputs == multi.mOutputFluids
+                && progress <= Math.max(0, multi.mProgresstime);
+        }
     }
 
     static boolean openGui(TileEntity tile, net.minecraft.entity.player.EntityPlayer player) {
