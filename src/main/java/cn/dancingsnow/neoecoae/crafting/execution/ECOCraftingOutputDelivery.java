@@ -191,8 +191,9 @@ final class ECOCraftingOutputDelivery {
                 .insert(what, accepted, Actionable.MODULATE);
             host.taskSchedulerForOutput()
                 .recordPhysicalInsert(what);
-            current.waitingFor.extract(what, accepted, Actionable.MODULATE);
-            current.producedTotals.merge(what, java.math.BigInteger.valueOf(accepted), java.math.BigInteger::add);
+            long claimed = current.waitingFor.extract(what, accepted, Actionable.MODULATE);
+            if (host.getJob() == current && claimed > 0L)
+                current.producedTotals.merge(what, java.math.BigInteger.valueOf(claimed), java.math.BigInteger::add);
             host.recordCompletedCraftingWork(accepted, what.getType());
             host.markCpuDirty();
             host.taskSchedulerForOutput()
@@ -369,8 +370,9 @@ final class ECOCraftingOutputDelivery {
             claim,
             request.actualKey()
                 .getType());
-        current.producedTotals
-            .merge(request.actualKey(), java.math.BigInteger.valueOf(claim), java.math.BigInteger::add);
+        // Progress is keyed by the planned waiting entry, even when the delivered key is substituted.
+        if (host.getJob() == current) current.producedTotals
+            .merge(request.expectedKey(), java.math.BigInteger.valueOf(claim), java.math.BigInteger::add);
         if (finalOutputClaim) {
             current.remainingAmount = Math.max(0L, current.remainingAmount - route.deliveredAmount());
         }

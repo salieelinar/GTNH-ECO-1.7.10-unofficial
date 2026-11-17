@@ -139,7 +139,10 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
         }
         boolean shortCycle = hasProgress && count > 0 && (double) duration / count <= SHORT_CYCLE_TICKS;
         float rounded = shortCycle ? 0 : Math.round(progress * 100) / 100.0F;
-        if (trimmed == null && !shortCycle && rounded == progress) return this;
+        // The transmitted global share must not round up to a finished bar; 1.0 is reserved for the real end.
+        float roundedGlobal = (float) Math.floor(globalProgress * 100.0F) / 100.0F;
+        if (globalProgress < 1.0F) roundedGlobal = Math.min(0.99F, roundedGlobal);
+        if (trimmed == null && !shortCycle && rounded == progress && roundedGlobal == globalProgress) return this;
         return new ECOProcessingProgress(
             rounded,
             hasProgress && !shortCycle,
@@ -148,7 +151,7 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             detailPage,
             refreshing,
             trimmed == null ? machines : trimmed,
-            globalProgress,
+            roundedGlobal,
             hasGlobalProgress);
     }
 

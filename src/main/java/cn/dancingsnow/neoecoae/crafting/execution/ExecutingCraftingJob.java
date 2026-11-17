@@ -299,8 +299,14 @@ public class ExecutingCraftingJob {
         exactOrder = data.getBoolean("exactOrder");
         readDeferred(data, "deferredStock", deferredStock, registries);
         readDeferred(data, "deferredEmitted", deferredEmitted, registries);
-        readDeferred(data, "planTotals", planTotals, registries);
-        readDeferred(data, "producedTotals", producedTotals, registries);
+        try {
+            readDeferred(data, "planTotals", planTotals, registries);
+            readDeferred(data, "producedTotals", producedTotals, registries);
+        } catch (RuntimeException invalidProgress) {
+            // Optional display history must not prevent an otherwise valid order from resuming.
+            planTotals.clear();
+            producedTotals.clear();
+        }
         if (planTotals.isEmpty()) rebuildPlanTotalsFromTasks();
         ECOExecutionRuntime restoredRuntime = null;
         boolean executionMetadataLost = data.getBoolean(NBT_EXECUTION_PERSISTENCE_FAILED)
@@ -506,6 +512,11 @@ public class ExecutingCraftingJob {
     /** The prepared suffix has already passed binding and material/seed checks. No in-flight work is replaced. */
     void replaceRemainingPlan(ExecutingCraftingJob prepared) {
         timeTracker.replaceRemainingWork(prepared.timeTracker);
+        // Only a quiescent suffix is replaced: keep the completed share and drop abandoned future work, otherwise
+        // an extended order would be measured against the old, smaller plan.
+        planTotals.clear();
+        planTotals.putAll(prepared.planTotals);
+        producedTotals.forEach((key, amount) -> planTotals.merge(key, amount, java.math.BigInteger::add));
         tasks.clear();
         tasks.putAll(prepared.tasks);
         tasksRevision++;

@@ -652,7 +652,9 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         int top = cellY + CELL_HEIGHT - GLOBAL_BAR_HEIGHT;
         int right = cellX + CELL_WIDTH, bottom = cellY + CELL_HEIGHT;
         Gui.drawRect(cellX, top, right, bottom, 0x50FFFFFF);
-        int filled = Math.round(CELL_WIDTH * Math.max(0f, Math.min(1f, fraction)));
+        // Only a finished job may look finished: rounding must never leave a full strip one pixel short of 100%.
+        int filled = fraction >= 1.0F ? CELL_WIDTH
+            : Math.min(CELL_WIDTH - 1, Math.round(CELL_WIDTH * Math.max(0f, fraction)));
         if (filled > 0) Gui.drawRect(cellX, top, cellX + filled, bottom, GLOBAL_BAR_COLOR);
     }
 
@@ -805,7 +807,8 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
             rows.add(
                 ProcessingTooltip.Row.text(
                     I18n.format("gui.neoecoae.processing.global_progress"),
-                    Math.round(progress.globalProgress() * 100) + "%"));
+                    (progress.globalProgress() >= 1.0F ? 100
+                        : Math.min(99, Math.round(progress.globalProgress() * 100))) + "%"));
             rows.add(ProcessingTooltip.Row.progress(progress.globalProgress(), ProcessingTooltip.CYAN, 0xFF332E3B));
         }
         for (String line : nativeTooltip(visual)) rows.add(ProcessingTooltip.Row.hint(line));
