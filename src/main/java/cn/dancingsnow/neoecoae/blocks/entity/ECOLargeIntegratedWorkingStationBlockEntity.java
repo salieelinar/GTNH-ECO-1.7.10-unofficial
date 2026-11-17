@@ -413,6 +413,7 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
 
     @Override
     public void setWorking(boolean value) {
+        if (isWorking() == value) return;
         super.setWorking(value);
         updateState(false);
     }
@@ -860,7 +861,7 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
             }
         }
         PendingBatch first = pendingBatches.peekFirst();
-        setProcessingTime(first == null ? 0 : first.progress);
+        if (first != null) setProcessingTime(first.progress);
     }
 
     public Component getRecipeText() {
@@ -1346,16 +1347,12 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         return true;
     }
 
-    private void refundProcessingPower(IEnergySource source, double amount) {
-        double remaining = source instanceof IEnergyGrid network ? network.injectPower(amount, Actionable.MODULATE)
-            : injectAEPower(amount, Actionable.MODULATE);
-        if (remaining > 0.0D && source != this) {
-            remaining = injectAEPower(remaining, Actionable.MODULATE);
-        } else if (remaining > 0.0D) {
-            GridView grid = getMainNode().getGrid();
-            if (grid != null) remaining = grid.getEnergyService()
-                .injectPower(remaining, Actionable.MODULATE);
+    private void refundProcessingPower(IEnergySource source, double rawAmount) {
+        if (source instanceof IEnergyGrid network) {
+            network.injectPower(rawAmount, Actionable.MODULATE);
+            return;
         }
+        double remaining = returnLocalPower(rawAmount);
         if (remaining > 0.0D) {
             pendingPowerRefund += remaining;
             setChanged();
@@ -1364,16 +1361,21 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
 
     private void retryPendingPowerRefund() {
         if (pendingPowerRefund <= 0.0D) return;
-        double remaining = injectAEPower(pendingPowerRefund, Actionable.MODULATE);
-        if (remaining > 0.0D) {
-            GridView grid = getMainNode().getGrid();
-            if (grid != null) remaining = grid.getEnergyService()
-                .injectPower(remaining, Actionable.MODULATE);
-        }
+        double remaining = returnLocalPower(pendingPowerRefund);
         if (remaining != pendingPowerRefund) {
             pendingPowerRefund = remaining;
             setChanged();
         }
+    }
+
+    private double returnLocalPower(double rawAmount) {
+        double remaining = injectAEPower(rawAmount, Actionable.MODULATE);
+        if (remaining <= 0.0D) return 0.0D;
+        GridView grid = getMainNode().getGrid();
+        if (grid == null) return remaining;
+        grid.getEnergyService()
+            .injectPower(remaining, Actionable.MODULATE);
+        return 0.0D;
     }
 
     private LargeWorkstationThermal.State thermalState() {
