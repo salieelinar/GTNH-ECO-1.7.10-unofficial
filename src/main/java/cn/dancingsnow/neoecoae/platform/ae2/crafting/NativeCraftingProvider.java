@@ -158,11 +158,15 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
         if (medium instanceof TileFluidAutoFiller) return false;
         // A host whose user switch disables pattern optimization is dispatched one copy at a time.
         if (strictSerialMode()) return false;
+        // Host media (e.g. GTNL's assembler matrix) expose their duality; the optimizer switch lives there.
+        DualityInterface duality = medium instanceof DualityInterface direct ? direct
+            : medium instanceof IInterfaceHost host ? host.getInterfaceDuality() : null;
         // Programmable Hatches' pattern hatch is recognised by its own class contract; every other medium defaults
         // to eligible, exactly as AE2's own batching does.
         return ProgrammableHatchCrafting.supportsScaledProcessing(medium)
-            && (!(medium instanceof appeng.helpers.DualityInterface)
-                || !hasCraftingLock((appeng.helpers.DualityInterface) medium));
+            && (duality == null || (duality.getConfigManager()
+                .getSetting(appeng.api.config.Settings.PATTERN_OPTIMIZATION) == appeng.api.config.YesNo.YES
+                && !hasCraftingLock(duality)));
     }
 
     /**
