@@ -156,11 +156,28 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
     public boolean supportsScaledProcessing() {
         // AE2FC's auto filler ignores the input table and emits one pattern output per push.
         if (medium instanceof TileFluidAutoFiller) return false;
+        // A host whose user switch disables pattern optimization is dispatched one copy at a time.
+        if (strictSerialMode()) return false;
         // Programmable Hatches' pattern hatch is recognised by its own class contract; every other medium defaults
         // to eligible, exactly as AE2's own batching does.
         return ProgrammableHatchCrafting.supportsScaledProcessing(medium)
             && (!(medium instanceof appeng.helpers.DualityInterface)
                 || !hasCraftingLock((appeng.helpers.DualityInterface) medium));
+    }
+
+    /**
+     * The host interface's pattern-optimization switch, read live. Strict serial dispatch only applies to hosts
+     * that own a user switch: AE2 interfaces (block, part, AE2FC dual interface) and GTNL's super pattern-input
+     * hatch. GT's own crafting input hatch has no switch (GTNL's mixin keeps the default true), and GTNL's
+     * assembler matrix always reports false on purpose to exclude itself from AE2's optimizer, so neither is
+     * treated as a strict host.
+     */
+    public boolean strictSerialMode() {
+        if (medium instanceof appeng.helpers.DualityInterface duality) {
+            return duality.getHost() instanceof IInterfaceViewable host && !host.allowsPatternOptimization();
+        }
+        return medium instanceof IInterfaceViewable viewable && GTNL_SUPER_PATTERN_HATCH.get(viewable.getClass())
+            && !viewable.allowsPatternOptimization();
     }
 
     static boolean hasCraftingLock(appeng.helpers.DualityInterface medium) {
@@ -268,6 +285,16 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
     private static final String TENKEI_AUTO_TEMPLATE_INPUT_HATCH = "com.tenkeitech.machine.MTEHatchAutoTemplateInputME";
     private static final String TENKEI_SUPER_CRAFTING_INPUT_HATCH = "com.tenkeitech.machine.MTESuperCraftingInputME";
     private static final String GTNL_ASSEMBLER_MATRIX = "com.science.gtnl.common.machine.multiblock.AssemblerMatrix";
+    private static final String GTNL_SUPER_PATTERN_HATCH_NAME = "com.science.gtnl.common.machine.hatch.SuperCraftingInputHatchME";
+    private static final ClassValue<Boolean> GTNL_SUPER_PATTERN_HATCH = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if (GTNL_SUPER_PATTERN_HATCH_NAME.equals(c.getName())) return true;
+            return false;
+        }
+    };
     private static final ClassValue<Boolean> UNBOUNDED_HATCH_TYPES = new ClassValue<>() {
 
         @Override

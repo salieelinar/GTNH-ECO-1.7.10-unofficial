@@ -98,6 +98,8 @@ final class ECOCraftingProviderDispatcher {
         double singlePower = CraftingCpuHelper.calculatePatternPower(originalRequest.inputs());
 
         for (var provider : providers) {
+            // Strict serial hosts stay idle until the outstanding copy's outputs are delivered to the job.
+            if (processing.isStrictBlocked(provider, originalRequest)) continue;
             boolean uncapped = isUnboundedHatch(provider);
             long limit = uncapped ? Long.MAX_VALUE : cappedLimit;
             var request = uncapped ? originalRequest : cappedRequest;
@@ -236,6 +238,7 @@ final class ECOCraftingProviderDispatcher {
                 throw failure;
             }
             diagnostics.progress(TickClock.currentTick());
+            processing.recordStrictPush(provider, request);
             return Result.accepted(1L, false);
         }
 
