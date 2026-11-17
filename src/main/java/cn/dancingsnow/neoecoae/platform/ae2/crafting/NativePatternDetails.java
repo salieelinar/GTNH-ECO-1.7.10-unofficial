@@ -20,6 +20,7 @@ import appeng.helpers.PatternHelper;
 import appeng.items.misc.ItemTunnelPattern;
 import appeng.me.cache.CraftingGridCache;
 import appeng.util.TunnelPatternExpander;
+import cn.dancingsnow.neoecoae.compat.proghatches.ProgrammableHatchCrafting;
 import cn.dancingsnow.neoecoae.platform.ae2.key.AEItemKey;
 import cn.dancingsnow.neoecoae.platform.ae2.key.AEKey;
 import cn.dancingsnow.neoecoae.platform.ae2.key.GenericStack;
@@ -34,6 +35,8 @@ public class NativePatternDetails implements IPatternDetails {
     private final IInput[] inputs;
     private final List<GenericStack> outputs;
     private final GenericStack[] sparse;
+    /** Programmable Hatches eligibility: plain processing pattern, including its multiplier wrapper delegates. */
+    private final boolean linearProcessing;
 
     protected NativePatternDetails(ICraftingPatternDetails pattern, World world, Substitutes substitutes) {
         this(pattern, world, substitutes, pattern.getAEInputs(), pattern.getCondensedAEInputs());
@@ -47,6 +50,11 @@ public class NativePatternDetails implements IPatternDetails {
     private NativePatternDetails(ICraftingPatternDetails pattern, World world, Substitutes substitutes,
         IAEStack<?>[] nativeSparse, IAEStack<?>[] nativeInputs) {
         nativePattern = Objects.requireNonNull(pattern);
+        // Batching eligibility: ordinary processing patterns only. Programmable Hatches' multiplier wrappers are
+        // unwrapped, and its chance-managed patterns stay single-copy because that hatch counts chance rolls per
+        // push instead of from the supplied material amount.
+        linearProcessing = ProgrammableHatchCrafting
+            .supportsScaledProcessingPattern(pattern, NativePatternDetails::isPlainProcessingPattern);
         definition = AEItemKey.of(pattern.getPattern());
         if (nativeSparse == null) throw new IllegalArgumentException("Null native sparse inputs");
         boolean dropEmpty = mightHaveEmptyInputs(pattern);
@@ -229,10 +237,18 @@ public class NativePatternDetails implements IPatternDetails {
         return pattern != null && FLUID_PROCESSING_PATTERNS.get(pattern.getClass());
     }
 
+    /** Processing IO is probed without a class whitelist; known per-push patterns remain single-copy. */
+    private static boolean isPlainProcessingPattern(ICraftingPatternDetails pattern) {
+        if (pattern.isCraftable() || mightHaveEmptyInputs(pattern)) return false;
+        // Programmable Hatches counts chance rolls per push rather than from the supplied material amount.
+        ItemStack encoded = pattern.getPattern();
+        return encoded != null && (!encoded.hasTagCompound() || !encoded.getTagCompound()
+            .getBoolean("phChance"));
+    }
+
     @Override
     public boolean supportsPushInputsToExternalInventory() {
-        return !nativePattern.isCraftable()
-            && (nativePattern.getClass() == PatternHelper.class || isTenkeiTechProcessingPattern(nativePattern));
+        return linearProcessing;
     }
 
     public final GenericStack[] getSparseInputs() {

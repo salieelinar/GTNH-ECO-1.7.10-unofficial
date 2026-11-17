@@ -24,6 +24,7 @@ import appeng.util.inv.MEInventoryCrafting;
 import cn.dancingsnow.neoecoae.api.me.diagnostics.ECOProcessingTargetProvider.Target;
 import cn.dancingsnow.neoecoae.api.me.provider.ECOIndeterminateBatchException;
 import cn.dancingsnow.neoecoae.blocks.entity.LargeWorkstationPatternProvider;
+import cn.dancingsnow.neoecoae.compat.proghatches.ProgrammableHatchCrafting;
 import cn.dancingsnow.neoecoae.platform.ae2.key.AEKey;
 import cn.dancingsnow.neoecoae.platform.ae2.key.GenericStack;
 import cn.dancingsnow.neoecoae.platform.ae2.key.KeyCounter;
@@ -155,9 +156,11 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
     public boolean supportsScaledProcessing() {
         // AE2FC's auto filler ignores the input table and emits one pattern output per push.
         if (medium instanceof TileFluidAutoFiller) return false;
-        if (isUnboundedPatternHatch()) return true;
-        return medium instanceof appeng.helpers.DualityInterface
-            && !hasCraftingLock((appeng.helpers.DualityInterface) medium);
+        // Programmable Hatches' pattern hatch is recognised by its own class contract; every other medium defaults
+        // to eligible, exactly as AE2's own batching does.
+        return ProgrammableHatchCrafting.supportsScaledProcessing(medium)
+            && (!(medium instanceof appeng.helpers.DualityInterface)
+                || !hasCraftingLock((appeng.helpers.DualityInterface) medium));
     }
 
     static boolean hasCraftingLock(appeng.helpers.DualityInterface medium) {
@@ -176,7 +179,7 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
      * (advanced blocking card, GT ignored items, smart-blocking hash), ECO only sizes the single push.
      */
     public boolean allowsScaledWhileBlocking() {
-        return medium instanceof appeng.helpers.DualityInterface && supportsScaledProcessing();
+        return supportsScaledProcessing();
     }
 
     /** Plain blocking accepts one push per empty target; smart blocking keeps accepting the same pattern. */
@@ -231,10 +234,25 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
         return Math.max(1L, limit);
     }
 
+    /** Unknown media may read int-sized item/fluid views, so bound aggregate amounts before probing. */
+    public long scaledProcessingCopyLimit(KeyCounter[] perCraftInputs) {
+        var totals = new java.util.HashMap<AEKey, Long>();
+        try {
+            for (var counter : perCraftInputs) for (var entry : counter) {
+                if (entry.getLongValue() > 0) totals.merge(entry.getKey(), entry.getLongValue(), Math::addExact);
+            }
+        } catch (ArithmeticException overflow) {
+            return 1L;
+        }
+        long limit = Long.MAX_VALUE;
+        for (long amount : totals.values()) limit = Math.min(limit, Integer.MAX_VALUE / amount);
+        return Math.max(1L, limit);
+    }
+
+    /** Successful native pushes drive the probe; AE2 additionally exposes unfinished outgoing transfers. */
     public boolean isScaledProcessingFullyInserted() {
-        if (unboundedPatternHatch) return true;
-        return medium instanceof appeng.helpers.DualityInterface
-            && NativeProcessingAccess.isSendBufferEmpty((appeng.helpers.DualityInterface) medium);
+        return !(medium instanceof appeng.helpers.DualityInterface)
+            || NativeProcessingAccess.isSendBufferEmpty((appeng.helpers.DualityInterface) medium);
     }
 
     private static final String GT_CRAFTING_INPUT_HATCH = "gregtech.common.tileentities.machines.MTEHatchCraftingInputME";
@@ -302,7 +320,11 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
             || physical instanceof NativePatternDetails details && (unboundedPatternHatch && !details.isCraftable()
                 || NativePatternDetails.isTenkeiTechProcessingPattern(details.nativeDetails())
                 || unboundedPatternHatch && NativePatternDetails.isFluidProcessingPattern(details.nativeDetails()));
-        if (physical != pattern && (!supportsScaledProcessing() || !batchableView)) return false;
+        // Upstream's plain-processing proof, plus the fork's unbounded/third-party views. A batched table is only
+        // built for media that accept the scaled submission contract.
+        if (physical != pattern
+            && (!supportsScaledProcessing() || !(batchableView || physical.supportsPushInputsToExternalInventory())))
+            return false;
         var nativePattern = (NativePatternDetails) physical;
         if (inputHolder.length != pattern.getInputs().length)
             throw new IllegalArgumentException("Source input dimensions differ from native pattern");

@@ -138,7 +138,8 @@ final class ECOProcessingPatternDispatcher {
         long transportLimit = offerAll
             ? cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider
                 .unboundedHatchCopyLimit(request.inputs())
-            : Long.MAX_VALUE;
+            : ((cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider) provider)
+                .scaledProcessingCopyLimit(request.inputs());
 
         ProbeState state = states.computeIfAbsent(provider, x -> new Reference2ObjectOpenHashMap<>())
             .computeIfAbsent(request.pattern(), x -> new ProbeState());
@@ -279,9 +280,7 @@ final class ECOProcessingPatternDispatcher {
 
     private static boolean isProcessingPattern(Object pattern) {
         if (pattern instanceof AEProcessingPattern) return true;
-        if (!(pattern instanceof NativePatternDetails details)) return false;
-        return NativePatternDetails.isTenkeiTechProcessingPattern(details.nativeDetails())
-            || NativePatternDetails.isFluidProcessingPattern(details.nativeDetails());
+        return pattern instanceof NativePatternDetails details && details.supportsPushInputsToExternalInventory();
     }
 
     private static Object providerLogic(ICraftingProvider provider) {
@@ -320,8 +319,8 @@ final class ECOProcessingPatternDispatcher {
             && !request.pattern()
                 .getOutputs()
                 .isEmpty()
-            && (request.pattern()
-                .supportsPushInputsToExternalInventory() || fluidPattern)
+            && request.pattern()
+                .supportsPushInputsToExternalInventory()
             && nativeProvider.supportsScaledProcessing();
     }
 
