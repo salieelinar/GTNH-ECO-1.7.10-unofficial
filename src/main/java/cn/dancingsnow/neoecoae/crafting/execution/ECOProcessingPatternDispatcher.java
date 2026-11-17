@@ -242,12 +242,10 @@ final class ECOProcessingPatternDispatcher {
                             : ECOBatchAdmission.rejected();
                     });
             } catch (ECOIndeterminateBatchException failure) {
-                request.job()
-                    .failPermanently("AMBIGUOUS_SCALED_PROVIDER_OWNERSHIP");
-                return null;
+                accounting.failPermanently(request, "AMBIGUOUS_SCALED_PROVIDER_OWNERSHIP");
+                break;
             } catch (RuntimeException failure) {
-                request.job()
-                    .failPermanently("SCALED_BATCH_SETTLEMENT_FAILURE");
+                accounting.failPermanently(request, "SCALED_BATCH_SETTLEMENT_FAILURE");
                 throw failure;
             }
             if (admission.status() != ECOBatchAdmission.Status.ACCEPTED) {
@@ -265,12 +263,11 @@ final class ECOProcessingPatternDispatcher {
 
                 accounting.apply(request, scaledResult(request, admission.acceptedCrafts()), () -> {}, provider);
             } catch (RuntimeException failure) {
-                request.job()
-                    .failPermanently("POST_ACCEPT_PROCESSING_ACCOUNTING_FAILURE");
+                accounting.failPermanently(request, "POST_ACCEPT_PROCESSING_ACCOUNTING_FAILURE");
                 throw failure;
             }
             if (!ramp.record(offer, admission.acceptedCrafts(), admission.canContinue(), tick)) break;
-            if (singlePush) break;
+            if (singlePush || request.job().suspended || owner.getJob() != request.job()) break;
             if (offerAll && offer == transportLimit) {
                 // The hatch's stack-list growth, not a craft budget, bounds one tick for this target.
                 state.nextDispatchTick = state.nextFallbackTick = tick + 1;
