@@ -16,6 +16,7 @@ import cn.dancingsnow.neoecoae.compat.gregtech.ECOGregTechMachineStatus;
 import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.metatileentity.implementations.MTEBasicMachine;
+import gregtech.api.metatileentity.implementations.MTEHatch;
 import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 
 /** Native API linkage is isolated from the no-GT load path. */
@@ -35,6 +36,8 @@ final class GregTechMachineAccess {
         "getProxyHatches");
     /** Ticks a finished cycle's parallel stays readable, so fast machines do not blink to unknown. */
     private static final long IDLE_PARALLEL_GRACE_TICKS = 100L;
+    /** Watcher list shared by GT's crafting input buffer and GTNL's super hatch; mirror proxies register there. */
+    private static final Field WATCHERS = hatchField();
     /** These two controllers compute their accepted parallel outside ProcessingLogic. */
     private static final String ORE_FACTORY = "gregtech.common.tileentities.machines.multi.MTEIntegratedOreFactory";
     private static final String ORE_FACTORY_LEGACY = "gregtech.common.tileentities.machines.multi.MTEIntegratedOreFactoryLegacy";
@@ -344,24 +347,70 @@ final class GregTechMachineAccess {
         return base instanceof TileEntity ? (TileEntity) base : null;
     }
 
-    /** Tiles of the shared-pattern mirror hatches linked to a crafting input buffer, empty for other blocks. */
+    /** Mirror hatches linked to a pattern buffer: GT's slave list plus GTNL's watcher-registered proxies. */
     static List<TileEntity> craftingInputProxies(TileEntity tile) {
-        if (PROXY_HATCHES == null || !(tile instanceof IGregTechTileEntity host)) return Collections.emptyList();
+        if (!(tile instanceof IGregTechTileEntity host)) return Collections.emptyList();
         IMetaTileEntity machine = host.getMetaTileEntity();
-        if (machine == null || !CRAFTING_INPUT_BUFFERS.get(machine.getClass())) return Collections.emptyList();
-        try {
-            Object proxies = PROXY_HATCHES.invoke(machine);
-            if (!(proxies instanceof Iterable<?>list)) return Collections.emptyList();
-            List<TileEntity> tiles = new ArrayList<>();
-            for (Object proxy : list) {
-                TileEntity base = hostTile(proxy);
-                if (base != null && !base.isInvalid()) tiles.add(base);
+        if (machine == null) return Collections.emptyList();
+        boolean buffer = CRAFTING_INPUT_BUFFERS.get(machine.getClass());
+        boolean superHatch = SUPER_CRAFTING_INPUT_HATCHES.get(machine.getClass());
+        if (!buffer && !superHatch) return Collections.emptyList();
+        List<TileEntity> tiles = new ArrayList<>();
+        if (buffer && PROXY_HATCHES != null) {
+            try {
+                Object proxies = PROXY_HATCHES.invoke(machine);
+                if (proxies instanceof Iterable<?>list) for (Object proxy : list) {
+                    TileEntity base = hostTile(proxy);
+                    if (base != null && !base.isInvalid() && !tiles.contains(base)) tiles.add(base);
+                }
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+                // Fall through to the watcher list; GTNL proxies never appear in GT's own slave list.
             }
-            return tiles;
+        }
+        if (WATCHERS != null) {
+            try {
+                Object watchers = WATCHERS.get(machine);
+                if (watchers instanceof Iterable<?>list) for (Object watcher : list) {
+                    if (watcher == null || !MIRROR_PROXY_TYPES.get(watcher.getClass())) continue;
+                    TileEntity base = hostTile(watcher);
+                    if (base != null && !base.isInvalid() && !tiles.contains(base)) tiles.add(base);
+                }
+            } catch (IllegalAccessException | RuntimeException | LinkageError unavailable) {
+                // A GT build without the hatch watcher list simply has no GTNL proxies.
+            }
+        }
+        return tiles;
+    }
+
+    private static Field hatchField() {
+        try {
+            Field field = MTEHatch.class.getDeclaredField("watchers");
+            field.setAccessible(true);
+            return field;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
-            return Collections.emptyList();
+            return null;
         }
     }
+
+    private static final ClassValue<Boolean> SUPER_CRAFTING_INPUT_HATCHES = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if ("com.science.gtnl.common.machine.hatch.SuperCraftingInputHatchME".equals(c.getName())) return true;
+            return false;
+        }
+    };
+
+    private static final ClassValue<Boolean> MIRROR_PROXY_TYPES = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if ("com.science.gtnl.common.machine.hatch.SuperCraftingInputProxy".equals(c.getName())) return true;
+            return false;
+        }
+    };
 
     private static final ClassValue<Boolean> CRAFTING_INPUT_BUFFERS = new ClassValue<>() {
 
