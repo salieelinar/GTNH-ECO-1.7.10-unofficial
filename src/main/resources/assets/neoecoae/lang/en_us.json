@@ -1323,6 +1323,8 @@
   "gui.neoecoae.processing.state.queued": "Queued",
   "gui.neoecoae.processing.state.unavailable": "Unavailable",
   "gui.neoecoae.crafting_status.processing.count": "Associated machines: %s",
+  "gui.neoecoae.crafting_status.processing.shared": "Shared pattern machines: %s",
+  "gui.neoecoae.crafting_status.processing.parallel_cycle": "Actual parallels: %1$s (per craft %2$s -> %3$s this cycle)",
   "gui.neoecoae.crafting_status.processing.refreshing": "Refreshing machine status in batches...",
   "gui.neoecoae.crafting_status.processing.loading_details": "Loading machine details...",
   "gui.neoecoae.crafting_status.processing.progress_unavailable": "Machine cycle progress is not available yet; the progress track remains unfilled.",

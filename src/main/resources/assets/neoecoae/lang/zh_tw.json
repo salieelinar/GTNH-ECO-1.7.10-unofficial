@@ -1321,6 +1321,8 @@
   "gui.neoecoae.processing.state.queued": "排队中",
   "gui.neoecoae.processing.state.unavailable": "不可用",
   "gui.neoecoae.crafting_status.processing.count": "關聯機器：%s 台",
+  "gui.neoecoae.crafting_status.processing.shared": "共享樣板機器：%s 台",
+  "gui.neoecoae.crafting_status.processing.parallel_cycle": "實際並行：%1$s（每份 %2$s → 本輪 %3$s）",
   "gui.neoecoae.crafting_status.processing.refreshing": "正在分批重新整理機器狀態……",
   "gui.neoecoae.crafting_status.processing.loading_details": "正在讀取機器明細……",
   "gui.neoecoae.crafting_status.processing.progress_unavailable": "目前尚無可用的機器週期進度，進度槽暫不填充。",

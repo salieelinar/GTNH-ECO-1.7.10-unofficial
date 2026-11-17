@@ -14,7 +14,8 @@ import cn.dancingsnow.neoecoae.platform.nbt.Tag;
  */
 @com.github.bsideup.jabel.Desugar
 public record ECOProcessingProgress(float progress, boolean hasProgress, State state, int machineCount, int detailPage,
-    boolean refreshing, List<Machine> machines, float globalProgress, boolean hasGlobalProgress) {
+    boolean refreshing, List<Machine> machines, float globalProgress, boolean hasGlobalProgress,
+    int sharedMachineCount) {
 
     public static final int DETAIL_PAGE_SIZE = 3;
     public static final int SHORT_CYCLE_TICKS = 5;
@@ -27,12 +28,14 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
         false,
         cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.listOf(),
         0,
-        false);
+        false,
+        0);
 
     public ECOProcessingProgress {
         progress = Float.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
         globalProgress = hasGlobalProgress && Float.isFinite(globalProgress) ? Math.max(0, Math.min(1, globalProgress))
             : 0;
+        sharedMachineCount = Math.max(machineCount, sharedMachineCount);
         machines = cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.listCopyOf(machines);
     }
 
@@ -47,10 +50,11 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             refreshing,
             machines,
             value,
-            true);
+            true,
+            sharedMachineCount);
     }
 
-    public static ECOProcessingProgress summarize(List<Machine> machines) {
+    public static ECOProcessingProgress summarize(List<Machine> machines, int sharedMachineCount) {
         double progress = 0, duration = 0;
         boolean running = false, waiting = false, paused = false, unavailable = false;
         for (var machine : machines) {
@@ -72,7 +76,8 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             false,
             machines,
             0,
-            false);
+            false,
+            Math.max(machines.size(), sharedMachineCount));
     }
 
     public ECOProcessingProgress refreshing(boolean value) {
@@ -86,7 +91,8 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
                 value,
                 machines,
                 globalProgress,
-                hasGlobalProgress);
+                hasGlobalProgress,
+                sharedMachineCount);
     }
 
     /** Negative page means a summary only. Paging never changes the all-machine aggregate. */
@@ -104,7 +110,8 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             page < 0 ? cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.listOf()
                 : machines.subList(start, Math.min(machines.size(), start + DETAIL_PAGE_SIZE)),
             globalProgress,
-            hasGlobalProgress);
+            hasGlobalProgress,
+            sharedMachineCount);
     }
 
     public int pages() {
@@ -133,6 +140,7 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
                         0,
                         0,
                         machine.parallel(),
+                        machine.cycleOutput(),
                         machine.state(),
                         machine.reason()));
             }
@@ -152,7 +160,8 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             refreshing,
             trimmed == null ? machines : trimmed,
             roundedGlobal,
-            hasGlobalProgress);
+            hasGlobalProgress,
+            sharedMachineCount);
     }
 
     public CompoundTag write() {
@@ -165,6 +174,7 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
         tag.putBoolean("refreshing", refreshing);
         tag.putDouble("global", globalProgress);
         tag.putBoolean("hasGlobal", hasGlobalProgress);
+        tag.putInt("shared", sharedMachineCount);
         var list = new ListTag();
         for (var machine : machines) {
             var entry = new CompoundTag();
@@ -177,6 +187,7 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             entry.putInt("progress", machine.progressTicks());
             entry.putInt("duration", machine.durationTicks());
             entry.putLong("parallel", machine.parallel());
+            entry.putLong("cycleOutput", machine.cycleOutput());
             entry.putString(
                 "state",
                 machine.state()
@@ -205,6 +216,7 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
                     entry.getInt("progress"),
                     entry.getInt("duration"),
                     entry.getLong("parallel"),
+                    entry.getLong("cycleOutput"),
                     state(entry.getString("state")),
                     component(entry.getString("reason"))));
         }
@@ -217,7 +229,8 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             tag.getBoolean("refreshing"),
             machines,
             (float) tag.getDouble("global"),
-            tag.getBoolean("hasGlobal"));
+            tag.getBoolean("hasGlobal"),
+            Math.max(0, tag.getInt("shared")));
     }
 
     private static State state(String value) {
@@ -244,12 +257,13 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
 
     @com.github.bsideup.jabel.Desugar
     public record Machine(Component name, String location, String recipe, int progressTicks, int durationTicks,
-        long parallel, State state, Component reason) {
+        long parallel, long cycleOutput, State state, Component reason) {
 
         public Machine {
             durationTicks = Math.max(0, durationTicks);
             progressTicks = Math.max(0, Math.min(durationTicks, progressTicks));
             parallel = Math.max(0, parallel);
+            cycleOutput = Math.max(0, cycleOutput);
             name = name.copy();
             reason = reason.copy();
         }

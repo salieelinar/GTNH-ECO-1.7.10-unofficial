@@ -120,6 +120,7 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
             progress,
             duration,
             parallel,
+            0,
             state,
             reason);
     }

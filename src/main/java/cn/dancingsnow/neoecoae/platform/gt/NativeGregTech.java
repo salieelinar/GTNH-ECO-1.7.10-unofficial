@@ -72,6 +72,11 @@ public final class NativeGregTech {
         return isAvailable() ? GregTechMachineAccess.inputs(machine) : java.util.Collections.emptyList();
     }
 
+    /** Mirror hatches sharing this crafting input buffer's patterns, empty when the tile is not a buffer. */
+    public static java.util.List<TileEntity> craftingInputProxies(TileEntity tile) {
+        return isAvailable() ? GregTechMachineAccess.craftingInputProxies(tile) : java.util.Collections.emptyList();
+    }
+
     @com.github.bsideup.jabel.Desugar
     public record MachineSnapshot(int metaTileId, String machineClass, boolean active, long storedEu, long euCapacity,
         int progress, int maxProgress, int euPerTick) {}

@@ -22,10 +22,19 @@ import gregtech.api.metatileentity.implementations.MTEMultiBlockBase;
 final class GregTechMachineAccess {
 
     /** Native processing logic, read reflectively so a GT build without it only disables the precise parallel. */
-    private static final Field PROCESSING_LOGIC = nativeField();
+    private static final Field PROCESSING_LOGIC = nativeField("processingLogic");
+    /** GT's own run clock, used only to keep a just-finished cycle's parallel readable for a moment. */
+    private static final Field RUN_TIME = nativeField("mTotalRunTime");
+    private static final Field LAST_WORK = nativeField("mLastWorkingTick");
     private static final Method CURRENT_PARALLELS = nativeMethod(
         "gregtech.api.logic.ProcessingLogic",
         "getCurrentParallels");
+    /** GTNL's pattern-input mirror hatches; absent on GT builds without the crafting input buffer. */
+    private static final Method PROXY_HATCHES = nativeMethod(
+        "gregtech.common.tileentities.machines.MTEHatchCraftingInputME",
+        "getProxyHatches");
+    /** Ticks a finished cycle's parallel stays readable, so fast machines do not blink to unknown. */
+    private static final long IDLE_PARALLEL_GRACE_TICKS = 100L;
     /** These two controllers compute their accepted parallel outside ProcessingLogic. */
     private static final String ORE_FACTORY = "gregtech.common.tileentities.machines.multi.MTEIntegratedOreFactory";
     private static final String ORE_FACTORY_LEGACY = "gregtech.common.tileentities.machines.multi.MTEIntegratedOreFactoryLegacy";
@@ -41,9 +50,9 @@ final class GregTechMachineAccess {
     /** Parallel captured at the recipe-check boundary of the running cycle; never crosses a cycle. */
     private static final Map<MTEMultiBlockBase, CycleParallel> CYCLE_PARALLELS = new WeakHashMap<>();
 
-    private static Field nativeField() {
+    private static Field nativeField(String name) {
         try {
-            Field field = MTEMultiBlockBase.class.getDeclaredField("processingLogic");
+            Field field = MTEMultiBlockBase.class.getDeclaredField(name);
             field.setAccessible(true);
             return field;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
@@ -130,24 +139,49 @@ final class GregTechMachineAccess {
      * key or fabricating 1 — batch-driven machines such as the GTNL assembly line are the ones that depend on it.
      */
     static synchronized long currentParallels(MTEMultiBlockBase multi) {
-        if (multi.mMaxProgresstime <= 0) {
-            CYCLE_PARALLELS.remove(multi);
-            return 0;
-        }
-        long live = processingParallels(multi);
-        if (live > 0) {
-            rememberParallels(multi, live);
-            return live;
-        }
         CycleParallel cycle = CYCLE_PARALLELS.get(multi);
-        if (cycle != null && cycle.matches(multi)) {
-            cycle.progress = Math.max(0, multi.mProgresstime);
-            return cycle.parallel;
+        if (multi.mMaxProgresstime > 0) {
+            long live = processingParallels(multi);
+            if (live > 0) {
+                rememberParallels(multi, live);
+                return live;
+            }
+            if (cycle != null && cycle.matches(multi)) {
+                cycle.progress = Math.max(0, multi.mProgresstime);
+                return cycle.parallel;
+            }
+            CYCLE_PARALLELS.remove(multi);
+            // GTNL's assembly line and other custom checkProcessing machines keep no ProcessingLogic value; their
+            // recipe output is multiplied by the parallel count, so the output stack is the only remaining estimate.
+            // Machines that do use ProcessingLogic must not fall back to it: one craft can output several items,
+            // which would read as that many parallels.
+            return hasProcessingLogic(multi) ? 0 : outputParallel(multi);
         }
+        // A fast machine finishes and restarts between two status samples; keep the last captured cycle value for a
+        // short window so the tooltip does not report unknown on every cycle boundary.
+        if (cycle != null && recentlyWorked(multi)) return cycle.parallel;
         CYCLE_PARALLELS.remove(multi);
-        // GTNL's assembly line and other custom checkProcessing machines keep no ProcessingLogic value; their recipe
-        // output is multiplied by the parallel count, so the output stack is the only remaining estimate.
-        return outputParallel(multi);
+        return 0;
+    }
+
+    private static boolean hasProcessingLogic(MTEMultiBlockBase multi) {
+        if (PROCESSING_LOGIC == null) return false;
+        try {
+            return PROCESSING_LOGIC.get(multi) != null;
+        } catch (IllegalAccessException | RuntimeException unavailable) {
+            return false;
+        }
+    }
+
+    private static boolean recentlyWorked(MTEMultiBlockBase multi) {
+        if (RUN_TIME == null || LAST_WORK == null) return false;
+        try {
+            long now = RUN_TIME.getLong(multi);
+            long worked = LAST_WORK.getLong(multi);
+            return worked > 0 && now - worked <= IDLE_PARALLEL_GRACE_TICKS;
+        } catch (IllegalAccessException | RuntimeException unavailable) {
+            return false;
+        }
     }
 
     /** Every native recipe check begins a new cycle, even when its duration and outputs are unchanged. */
@@ -309,6 +343,35 @@ final class GregTechMachineAccess {
         IGregTechTileEntity base = ((IMetaTileEntity) machine).getBaseMetaTileEntity();
         return base instanceof TileEntity ? (TileEntity) base : null;
     }
+
+    /** Tiles of the shared-pattern mirror hatches linked to a crafting input buffer, empty for other blocks. */
+    static List<TileEntity> craftingInputProxies(TileEntity tile) {
+        if (PROXY_HATCHES == null || !(tile instanceof IGregTechTileEntity host)) return Collections.emptyList();
+        IMetaTileEntity machine = host.getMetaTileEntity();
+        if (machine == null || !CRAFTING_INPUT_BUFFERS.get(machine.getClass())) return Collections.emptyList();
+        try {
+            Object proxies = PROXY_HATCHES.invoke(machine);
+            if (!(proxies instanceof Iterable<?>list)) return Collections.emptyList();
+            List<TileEntity> tiles = new ArrayList<>();
+            for (Object proxy : list) {
+                TileEntity base = hostTile(proxy);
+                if (base != null && !base.isInvalid()) tiles.add(base);
+            }
+            return tiles;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return Collections.emptyList();
+        }
+    }
+
+    private static final ClassValue<Boolean> CRAFTING_INPUT_BUFFERS = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if ("gregtech.common.tileentities.machines.MTEHatchCraftingInputME".equals(c.getName())) return true;
+            return false;
+        }
+    };
 
     /** MTEHatchCraftingInputSlave#getMaster, resolved reflectively since the proxy class varies between GT builds. */
     private static final java.lang.reflect.Method CRAFTING_INPUT_MASTER = craftingInputMaster();

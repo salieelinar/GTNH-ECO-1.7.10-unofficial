@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import net.minecraft.item.ItemStack;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.fluids.FluidStack;
@@ -79,6 +80,8 @@ public final class ECOGregTechMachineStatus {
         private final HashSet<Target> visited = new HashSet<>();
         private final Map<String, Machine> machines = new LinkedHashMap<>();
         private final LinkedHashSet<Target> machineTargets = new LinkedHashSet<>();
+        /** Controllers reached through the shared-pattern mirror hatches of the dispatched input buffer. */
+        private final LinkedHashSet<Target> sharedMachines = new LinkedHashSet<>();
         private final AEKey output;
 
         public Scan(Iterable<Target> roots, AEKey output) {
@@ -96,6 +99,13 @@ public final class ECOGregTechMachineStatus {
 
         public List<Target> machineTargets() {
             return new ArrayList<>(machineTargets);
+        }
+
+        /** Every machine sharing this pattern bank: the resolved controllers plus the mirror hatches' hosts. */
+        public int sharedMachineCount() {
+            var all = new LinkedHashSet<>(machineTargets);
+            all.addAll(sharedMachines);
+            return all.size();
         }
 
         public void addRoot(Target target) {
@@ -124,6 +134,7 @@ public final class ECOGregTechMachineStatus {
                         0,
                         0,
                         0,
+                        0,
                         State.UNAVAILABLE,
                         Component.translatable("gui.neoecoae.processing.unloaded")));
                 return;
@@ -131,6 +142,16 @@ public final class ECOGregTechMachineStatus {
             var pos = target.position();
             var tile = world.getTileEntity(pos.getX(), pos.getY(), pos.getZ());
             if (tile == null || tile.isInvalid()) return;
+            // The dispatched buffer can feed other machines through mirror hatches; count their hosts as sharing
+            // this pattern bank even though AE2 only addresses the buffer itself.
+            for (TileEntity proxy : NativeGregTech.craftingInputProxies(tile)) {
+                var proxyPos = new cn.dancingsnow.neoecoae.platform.minecraft.BlockPos(
+                    proxy.xCoord,
+                    proxy.yCoord,
+                    proxy.zCoord);
+                for (Target controller : NativeProcessingMachines.controllers(world, proxyPos))
+                    sharedMachines.add(controller);
+            }
             if (!NativeProcessingMachines.isCurrentController(world, pos, tile)) return;
             if (tile instanceof cn.dancingsnow.neoecoae.blocks.entity.ECOLargeIntegratedWorkingStationBlockEntity workstation) {
                 machineTargets.add(target);
@@ -184,7 +205,21 @@ public final class ECOGregTechMachineStatus {
             progress = 0;
         }
         long parallel = duration > 0 ? Math.max(0L, sample.lastParallel()) : 0;
-        return new Machine(name, location, "", progress, duration, parallel, state, reason);
+        long cycleOutput = matches ? matchedOutputAmount(sample.outputs(), output) : 0L;
+        return new Machine(name, location, "", progress, duration, parallel, cycleOutput, state, reason);
+    }
+
+    /** The pending output amount of this cycle, i.e. recipe output multiplied by the accepted parallels. */
+    private static long matchedOutputAmount(Iterable<?> outputs, AEKey output) {
+        long amount = 0L;
+        for (Object entry : outputs) {
+            if (entry instanceof ItemStack stack) {
+                if (output instanceof AEItemKey && output.equals(AEItemKey.of(stack))) amount += stack.stackSize;
+            } else if (entry instanceof FluidStack fluid) {
+                if (output instanceof AEFluidKey && output.equals(AEFluidKey.of(fluid))) amount += fluid.amount;
+            }
+        }
+        return amount;
     }
 
     /** The most specific reason a machine is not advancing this output, in the order GT itself checks them. */
@@ -213,6 +248,7 @@ public final class ECOGregTechMachineStatus {
             name,
             location,
             "",
+            0,
             0,
             0,
             0,
