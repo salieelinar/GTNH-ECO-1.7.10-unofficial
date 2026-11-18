@@ -80,6 +80,8 @@ public final class ECOCraftingStatusTracker {
         long nextProcessingTick = Long.MIN_VALUE;
         /** The last processing payload sent; an empty tag means the client holds none. */
         CompoundTag processing = new CompoundTag();
+        /** Signature of the round-based progress list last sent; empty until the first payload. */
+        String roundsKey = "";
         final Map<AEKey, ECOProcessingProgress> sentProgress = new LinkedHashMap<>();
         Set<AEKey> visible = Collections.emptySet();
         int visibleSerial = -1;
@@ -168,6 +170,7 @@ public final class ECOCraftingStatusTracker {
                 tracked.candidates = Collections.emptyList();
                 tracked.candidateSet = Collections.emptySet();
                 tracked.nextProcessingTick = Long.MIN_VALUE;
+                tracked.roundsKey = "";
                 ECOCraftConfirmPackets.syncStatusProcessing(player, tracked.container.windowId, tracked.processing);
             }
             return;
@@ -236,20 +239,47 @@ public final class ECOCraftingStatusTracker {
             if (!next.containsKey(key)) removed.add(key.toTagGeneric(RegistryAccess.EMPTY));
         }
         boolean deliveryBlocked = logic.isFinalOutputDeliveryBlocked();
+        ListTag rounds = new ListTag();
+        StringBuilder roundsKey = new StringBuilder();
+        for (var status : tracked.container.getCPUTable()
+            .getCPUs()) {
+            var statusRuntime = ecoRuntime(status.getServerCluster());
+            if (statusRuntime == null) continue;
+            long[] roundProgress = statusRuntime.cpu()
+                .getLogic()
+                .roundProgress();
+            if (roundProgress == null || roundProgress[0] <= 0L) continue;
+            CompoundTag round = new CompoundTag();
+            round.putInt("serial", status.getSerial());
+            round.putLong("total", roundProgress[0]);
+            round.putLong("completed", roundProgress[1]);
+            rounds.add(round);
+            roundsKey.append(status.getSerial())
+                .append(':')
+                .append(roundProgress[0])
+                .append(':')
+                .append(roundProgress[1])
+                .append(';');
+        }
+        boolean roundsChanged = !roundsKey.toString()
+            .equals(tracked.roundsKey);
         if (!reset && entries.isEmpty()
             && removed.isEmpty()
-            && deliveryBlocked == tracked.processing.getBoolean("deliveryBlocked")) return;
+            && deliveryBlocked == tracked.processing.getBoolean("deliveryBlocked")
+            && !roundsChanged) return;
         CompoundTag payload = new CompoundTag();
         payload.putBoolean("eco", true);
         payload.putInt("cpuSerial", serial);
         payload.putBoolean("deliveryBlocked", deliveryBlocked);
         payload.putString("job", job);
+        payload.put("rounds", rounds);
         if (!reset) payload.putBoolean("delta", true);
         payload.put("entries", entries);
         if (!removed.isEmpty()) payload.put("removed", removed);
         tracked.sentProgress.clear();
         tracked.sentProgress.putAll(next);
         tracked.processing = payload;
+        tracked.roundsKey = roundsKey.toString();
         ECOCraftConfirmPackets.syncStatusProcessing(player, tracked.container.windowId, payload);
     }
 
