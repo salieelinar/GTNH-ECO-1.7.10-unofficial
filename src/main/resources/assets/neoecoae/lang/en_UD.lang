@@ -1447,6 +1447,7 @@ gui.neoecoae.crafting_status.processing.awaiting_dispatch=Waiting for this step 
 gui.neoecoae.crafting_status.processing.page=Details %s / %s · Shift + wheel to change page
 gui.neoecoae.crafting_status.processing.parallel=Actual parallels: %s
 gui.neoecoae.crafting_status.processing.parallel_cycle=Actual parallels: %s (per parallel %s; this cycle %s)
+gui.neoecoae.processing.awaiting_output=Awaiting this cycle's output
 gui.neoecoae.crafting_status.processing.cycle=Cycle %s%%
 gui.neoecoae.duration.sec=%ss
 gui.neoecoae.duration.min=%sm %ss

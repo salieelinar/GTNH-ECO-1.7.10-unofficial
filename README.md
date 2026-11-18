@@ -6,6 +6,9 @@
 
 > **个人修复版**：基于上游 7.3.12，保留上游全部修复与优化，并加入全局进度条等本地改动。改动见 [CHANGELOG](CHANGELOG.md)，下载见 [Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases)。
 
+- 稳定版：[GitHub Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases/latest)
+- 开发版（Dev Build）：[最新开发构建](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases/tag/dev-build)（仅供测试，可能不稳定，随 dev 分支更新）
+
 本项目是 Neo ECO AE Extension（ECO）的官方 Minecraft 1.7.10 版本，面向 GT New Horizons。
 
 为 ME 网络提供可扩展的存储、合成与计算多方块，支持集中仓储、批量制造与复杂任务规划。
