@@ -705,6 +705,15 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         if (filled > 0) Gui.drawRect(cellX, top, cellX + filled, bottom, GLOBAL_BAR_COLOR);
     }
 
+    /**
+     * Suppress the fast early stages and amplify the slow final stage: the log curve is applied to the remaining
+     * fraction, so a nearly finished job moves the bar quickly (the last crafts take the longest).
+     */
+    private static float overallShown(float real) {
+        float x = Math.max(0f, Math.min(1f, real));
+        return (float) (1.0 - Math.log1p(9.0 * (1.0 - x)) / Math.log(10.0));
+    }
+
     private ECOProcessingProgress progressOf(CraftingCpuEntry entry) {
         if (processing.isEmpty()) return ECOProcessingProgress.EMPTY;
         AEKey key = AEKey.fromNative(entry.getStack());
@@ -1134,13 +1143,15 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         long[] rounds = roundProgress.get(cpu.getSerial());
         if (rounds != null && rounds[0] > 0L) {
             float real = Math.max(0f, Math.min(1f, (float) rounds[1] / (float) rounds[0]));
-            float shown = (float) (Math.log1p(9.0 * real) / Math.log(10.0));
+            float shown = overallShown(real);
             card.add(ProcessingTooltip.Row.separator());
             card.add(
                 ProcessingTooltip.Row
                     .text(card("overall_progress"), Math.round(shown * 100) + "%", ProcessingTooltip.CYAN));
             card.add(ProcessingTooltip.Row.progress(shown, ProcessingTooltip.CYAN, 0xFF332E3B));
-            card.add(ProcessingTooltip.Row.text(card("rounds"), rounds[1] + " / " + rounds[0]));
+            card.add(
+                ProcessingTooltip.Row
+                    .text(I18n.format("gui.neoecoae.computation.ui.card.rounds", rounds[1], rounds[0])));
         }
         // Preserve native details such as request source and allow mode below the card's statistics.
         for (String line : lines) {
@@ -1301,9 +1312,8 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
                 long[] rounds = roundProgress.get(status.getSerial());
                 if (rounds == null || rounds[0] <= 0L) continue;
                 float real = Math.max(0f, Math.min(1f, (float) rounds[1] / (float) rounds[0]));
-                float shown = (float) (Math.log1p(9.0 * real) / Math.log(10.0));
                 int rowTop = 19 + row * GuiCraftingCPUTable.CPU_TABLE_SLOT_HEIGHT;
-                drawGlobalBar(shown, 9 - GuiCraftingCPUTable.CPU_TABLE_WIDTH, rowTop + 1);
+                drawGlobalBar(overallShown(real), 9 - GuiCraftingCPUTable.CPU_TABLE_WIDTH, rowTop + 1);
             }
         }
 
