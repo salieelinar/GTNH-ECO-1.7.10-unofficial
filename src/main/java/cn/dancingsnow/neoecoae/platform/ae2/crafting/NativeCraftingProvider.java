@@ -54,6 +54,9 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
         this.assemblerMatrix = ASSEMBLER_MATRIX_TYPES.get(medium.getClass());
         String mediumName = medium.getClass()
             .getName();
+        // Both GTSWN endpoints are final. Match the optional medium once without loading either class.
+        this.preserveInputSlots = assemblerMatrix || GTSWN_ITEM_INPUT.equals(mediumName)
+            || GTSWN_FLUID_INPUT.equals(mediumName);
         if ((mediumName.startsWith("com.science.gtnl.") || mediumName.startsWith("com.tenkeitech."))
             && LOGGED_COMPAT_MEDIA.add(mediumName)) {
             COMPAT_LOGGER.info("[ECO-COMPAT] medium={} unbounded={}", mediumName, unboundedPatternHatch);
@@ -289,6 +292,8 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
     private static final String TENKEI_AUTO_TEMPLATE_INPUT_HATCH = "com.tenkeitech.machine.MTEHatchAutoTemplateInputME";
     private static final String TENKEI_SUPER_CRAFTING_INPUT_HATCH = "com.tenkeitech.machine.MTESuperCraftingInputME";
     private static final String GTNL_ASSEMBLER_MATRIX = "com.science.gtnl.common.machine.multiblock.AssemblerMatrix";
+    private static final String GTSWN_ITEM_INPUT = "com.miaokatze.gtswn.common.assembly.MatrixItemInputBus";
+    private static final String GTSWN_FLUID_INPUT = "com.miaokatze.gtswn.common.assembly.MatrixFluidInputHatch";
     private static final String GTNL_SUPER_PATTERN_HATCH_NAME = "com.science.gtnl.common.machine.hatch.SuperCraftingInputHatchME";
     private static final ClassValue<Boolean> GTNL_SUPER_PATTERN_HATCH = new ClassValue<>() {
 
@@ -340,6 +345,8 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
     private final boolean unboundedPatternHatch;
     /** GTNL's assembler matrix reads its batch multiplier from the crafting inventory, not from stack sizes. */
     private final boolean assemblerMatrix;
+    /** GTNL resolves container returns, GTSWN ordered processing: both need the physical pattern's slots. */
+    private final boolean preserveInputSlots;
 
     @Override
     public boolean pushPattern(IPatternDetails pattern, KeyCounter[] inputHolder) {
@@ -372,9 +379,9 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
                 (slot, stack) -> table.setInventorySlotContents(slot, appeng.util.item.AEItemStack.create(stack)));
             for (var counter : copy)
                 if (!counter.isEmpty()) throw new IllegalArgumentException("Unexpected native crafting input surplus");
-        } else if (assemblerMatrix) {
-            // GTNL resolves container returns from the physical pattern's sparse slot indices.
-            table = assemblerTable(nativePattern, inputHolder, copies);
+        } else if (preserveInputSlots) {
+            // GTNL resolves container returns, GTSWN ordered processing: both read the physical pattern's slots.
+            table = orderedProcessingTable(nativePattern, inputHolder, copies);
             if (table == null) return false;
         } else {
             var stacks = new ArrayList<IAEStack<?>>();
@@ -425,9 +432,9 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
         return accepted;
     }
 
-    /** GTNL resolves container returns from the physical pattern's sparse slot indices. */
+    /** Restore the physical slots for GTNL container returns and GTSWN ordered processing. */
     @Nullable
-    private static MEInventoryCrafting assemblerTable(NativePatternDetails pattern, KeyCounter[] inputHolder,
+    private static MEInventoryCrafting orderedProcessingTable(NativePatternDetails pattern, KeyCounter[] inputHolder,
         long copies) {
         var remaining = new KeyCounter();
         try {
