@@ -90,6 +90,8 @@ public class ECOIntegratedWorkingStationBlockEntity extends NativeNetworkBlockEn
     private int processingTime;
     @Persisted
     private double paidStepRemainder;
+    /** Upstream 57277c00 state; required by 5a63a063's power-progress reporting. */
+    private String processingBlockReason;
     private final EnumSet<RelativeSide> allowOutputs = EnumSet.allOf(RelativeSide.class);
     private WorkstationRecipes.Match cachedTask;
     private Map<ResourceLocation, IntegratedWorkingStationRecipe> cachedRecipes;
