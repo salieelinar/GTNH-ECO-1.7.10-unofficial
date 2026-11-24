@@ -131,6 +131,14 @@ public final class PatternUploadSession {
         return PatternTargetSelector.choose(evaluations, mapping());
     }
 
+    public String mappingFailure(PatternContext context, PatternTargetSelector.Evaluation evaluation) {
+        if (!isOpen() || !source.canEdit(player)) return REASON_NO_PERMISSION;
+        if (context == null) return REASON_NO_PATTERN;
+        if (!PatternStacks.sameItem(context.pattern, listedPattern)) return PatternTransfer.REASON_SOURCE_CHANGED;
+        return PatternUploadMappings
+            .mappingFailure(player, PatternUploadMappings.scope(context, evaluation), evaluation);
+    }
+
     /** Saving a preference moves no pattern and never trusts a client-supplied machine name or group identity. */
     public boolean saveMapping(int token) {
         if (!isOpen() || !source.canEdit(player)) {
@@ -152,20 +160,25 @@ public final class PatternUploadSession {
             return false;
         }
         IGrid grid = source.grid();
+        String failure = "gui.neoecoae.pattern_upload.mapping.target_changed";
         for (PatternTargetSelector.Evaluation member : group.members) {
             PatternTargetSelector.Evaluation current = PatternTargetSelector.evaluate(member.target, context, grid);
-            if (current.state == PatternTargetSelector.SlotState.OFFLINE || !current.match.allowsMapping()
-                || !PatternTargetGroups.mappingKey(current)
-                    .equals(PatternTargetGroups.mappingKey(member)))
-                continue;
+            if (!PatternTargetGroups.mappingKey(current)
+                .equals(PatternTargetGroups.mappingKey(member))) continue;
             PatternUploadMappings.Scope scope = PatternUploadMappings.scope(context, current);
+            failure = mappingFailure(context, current);
+            if (!failure.isEmpty()) continue;
             boolean saved = PatternUploadMappings.put(player, scope, current, false);
             message(
-                saved ? "gui.neoecoae.pattern_upload.mapping.saved" : "gui.neoecoae.pattern_upload.mapping.save_failed",
+                saved
+                    ? "gui.neoecoae.pattern_upload.reason.cross_gt".equals(current.match.reason)
+                        ? "gui.neoecoae.pattern_upload.mapping.saved_cross_gt"
+                        : "gui.neoecoae.pattern_upload.mapping.saved"
+                    : "gui.neoecoae.pattern_upload.mapping.save_failed",
                 !saved);
             return saved;
         }
-        message("gui.neoecoae.pattern_upload.mapping.target_changed", true);
+        message(failure, true);
         return false;
     }
 
@@ -281,13 +294,25 @@ public final class PatternUploadSession {
         if (receipt == null) return fail("gui.neoecoae.pattern_upload.reason.no_receipt");
         if (receipt.sourceIdentity != source.identity()) return fail("gui.neoecoae.pattern_upload.reason.other_source");
         if (!isOpen() || !source.canEdit(player)) return fail(REASON_NO_PERMISSION);
+        PatternSlotAccess.SlotRef receiver = findUndoReceiver(source.grid(), receipt);
+        if (receiver == null) return fail(PatternTransfer.REASON_OFFLINE);
         PatternTransfer.Result result = PatternTransfer
-            .move(receipt.target.access, receipt.target.slot, source.slots(), source.slot(), receipt.pattern);
+            .move(receiver.access, receiver.slot, source.slots(), source.slot(), receipt.pattern);
         if (result.succeeded()) {
             PatternUploadSessions.forget(player, receipt);
             message("gui.neoecoae.pattern_upload.undo_success", false);
         } else message(result.reason, true);
         return result;
+    }
+
+    private PatternSlotAccess.SlotRef findUndoReceiver(IGrid grid, UploadReceipt receipt) {
+        for (PatternUploadTarget target : discovery.apply(grid)) {
+            if (target.kind() != receipt.kind || !target.isPresent(grid)) continue;
+            PatternSlotAccess.SlotRef slot = target.slots()
+                .findPhysical(receipt.target, grid);
+            if (slot != null) return slot;
+        }
+        return null;
     }
 
     /** The receipt of the player's last upload when it can be undone into this terminal, else null. */

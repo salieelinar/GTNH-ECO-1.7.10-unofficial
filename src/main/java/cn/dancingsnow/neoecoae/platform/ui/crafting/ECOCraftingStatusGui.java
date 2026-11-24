@@ -63,6 +63,7 @@ import cn.dancingsnow.neoecoae.crafting.display.format.NEByteFormatter;
 import cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress;
 import cn.dancingsnow.neoecoae.platform.ae2.key.AEKey;
 import cn.dancingsnow.neoecoae.platform.nbt.CompoundTag;
+import cn.dancingsnow.neoecoae.platform.nbt.Tag;
 import cn.dancingsnow.neoecoae.platform.network.ECOCraftConfirmPackets;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -75,6 +76,12 @@ import cpw.mods.fml.relauncher.SideOnly;
  */
 @SideOnly(Side.CLIENT)
 public final class ECOCraftingStatusGui extends GuiCraftingStatus {
+
+    private static final org.apache.logging.log4j.Logger STATUS_LOG = org.apache.logging.log4j.LogManager
+        .getLogger("neoecoae");
+    private int diagnosedWindow = Integer.MIN_VALUE, diagnosedStateWindow = Integer.MIN_VALUE;
+    private boolean diagnosedEco;
+    private boolean diagnosedVisualPacket;
 
     private static final ResourceLocation PROCESSING = new ResourceLocation(
         "neoecoae",
@@ -196,6 +203,8 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
 
     /** Live machine status per output, parsed from the server payload whenever it is replaced. */
     private Map<AEKey, ECOProcessingProgress> processing = Collections.emptyMap();
+    /** Round-based overall progress per CPU serial (total, completed); empty CPUs stay absent. */
+    private Map<Integer, long[]> roundProgress = Collections.emptyMap();
     @Nullable
     private CompoundTag processingSource;
     /** Whether the selected CPU is an ECO CPU whose processing monitor reports machines at all. */
@@ -259,6 +268,19 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         state = ECOCraftingStatusClient.state(inventorySlots);
+        if (diagnosedWindow != inventorySlots.windowId || diagnosedStateWindow != state.windowId
+            || diagnosedEco != state.eco) {
+            diagnosedWindow = inventorySlots.windowId;
+            diagnosedStateWindow = state.windowId;
+            diagnosedEco = state.eco;
+            STATUS_LOG.info(
+                "[craft-status] GUI window={} metadataWindow={} eco={} selectedCpu={} entries={}",
+                inventorySlots.windowId,
+                state.windowId,
+                state.eco,
+                getCPUTable().getContainer().selectedCpuSerial,
+                entries.size());
+        }
         boolean eco = ecoCapable && !unsupported && state.eco;
         boolean cycle = eco;
         if (eco != ecoLayout || cycle != taskLayout) {
@@ -318,6 +340,50 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             // AE2's default placement is a few pixels off the track but still usable.
         }
+    }
+
+    private static final Field CPU_SCROLLBAR_FIELD = cpuScrollbarField();
+    private static final java.lang.reflect.Method SORTED_CPUS_METHOD = sortedCpusMethod();
+
+    private static Field cpuScrollbarField() {
+        try {
+            Field field = GuiCraftingCPUTable.class.getDeclaredField("cpuScrollbar");
+            field.setAccessible(true);
+            return field;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static java.lang.reflect.Method sortedCpusMethod() {
+        try {
+            var method = GuiCraftingCPUTable.class.getDeclaredMethod("getSortedCPUs");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
+    private static int cpuScroll(GuiCraftingCPUTable table) {
+        if (CPU_SCROLLBAR_FIELD == null) return 0;
+        try {
+            return ((GuiScrollbar) CPU_SCROLLBAR_FIELD.get(table)).getCurrentScroll();
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            return 0;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.List<CraftingCPUStatus> sortedCpus(GuiCraftingCPUTable table) {
+        if (SORTED_CPUS_METHOD != null) try {
+            var sorted = (java.util.List<CraftingCPUStatus>) SORTED_CPUS_METHOD.invoke(table);
+            if (sorted != null) return sorted;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
+            // Fall back to the container's order; the bar still follows the rows AE2 draws.
+        }
+        return table.getContainer()
+            .getCPUs();
     }
 
     @Override
@@ -435,6 +501,16 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
             IAEStack<?> key = CraftingCpuEntry.normalizeStack(update.getStack());
             if (update.getTotalAmount() <= 0) entries.remove(key);
             else entries.put(key, update);
+        }
+        if (clearFirst || !diagnosedVisualPacket) {
+            diagnosedVisualPacket = true;
+            STATUS_LOG.info(
+                "[craft-status] GUI item packet window={} cpuSerial={} clear={} updates={} visible={}",
+                inventorySlots.windowId,
+                getCPUTable().getContainer().selectedCpuSerial,
+                clearFirst,
+                updates == null ? 0 : updates.length,
+                entries.size());
         }
         super.postVisualEntryUpdate(updates, clearFirst, remainingOperations);
     }
@@ -658,6 +734,15 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         if (filled > 0) Gui.drawRect(cellX, top, cellX + filled, bottom, GLOBAL_BAR_COLOR);
     }
 
+    /**
+     * Suppress the fast early stages and amplify the slow final stage: the log curve is applied to the remaining
+     * fraction, so a nearly finished job moves the bar quickly (the last crafts take the longest).
+     */
+    private static float overallShown(float real) {
+        float x = Math.max(0f, Math.min(1f, real));
+        return (float) (1.0 - Math.log1p(9.0 * (1.0 - x)) / Math.log(10.0));
+    }
+
     private ECOProcessingProgress progressOf(CraftingCpuEntry entry) {
         if (processing.isEmpty()) return ECOProcessingProgress.EMPTY;
         AEKey key = AEKey.fromNative(entry.getStack());
@@ -678,6 +763,13 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
         processingMonitored = current && tag.getBoolean("eco");
         taskJob = current ? tag.getString("job") : "";
         processing = current ? received.values : Collections.emptyMap();
+        Map<Integer, long[]> rounds = new HashMap<>();
+        var roundList = tag.getList("rounds", Tag.TAG_COMPOUND);
+        for (int i = 0; i < roundList.size(); i++) {
+            var row = roundList.getCompound(i);
+            rounds.put(row.getInt("serial"), new long[] { row.getLong("total"), row.getLong("completed") });
+        }
+        roundProgress = rounds;
     }
 
     /**
@@ -1077,6 +1169,19 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
                         TimeUnit.NANOSECONDS.toMillis(cpu.getCraftingElapsedTime()),
                         GuiText.ETAFormat.getLocal())));
         }
+        long[] rounds = roundProgress.get(cpu.getSerial());
+        if (rounds != null && rounds[0] > 0L) {
+            float real = Math.max(0f, Math.min(1f, (float) rounds[1] / (float) rounds[0]));
+            float shown = overallShown(real);
+            card.add(ProcessingTooltip.Row.separator());
+            card.add(
+                ProcessingTooltip.Row
+                    .text(card("overall_progress"), Math.round(shown * 100) + "%", ProcessingTooltip.CYAN));
+            card.add(ProcessingTooltip.Row.progress(shown, ProcessingTooltip.CYAN, 0xFF332E3B));
+            card.add(
+                ProcessingTooltip.Row
+                    .text(I18n.format("gui.neoecoae.computation.ui.card.rounds", rounds[1], rounds[0])));
+        }
         // Preserve native details such as request source and allow mode below the card's statistics.
         for (String line : lines) {
             if (line.contains(GuiText.CPUSourcePlayer.getLocal()) || line.contains(GuiText.CPUAllowMode.getLocal()))
@@ -1218,8 +1323,27 @@ public final class ECOCraftingStatusGui extends GuiCraftingStatus {
             GL11.glTranslatef(0, shift, 0);
             tooltipCpu = ecoLayout ? super.hitCpu(mouseX - guiLeft, mouseY - guiTop - shift) : null;
             super.drawFG(offsetX, offsetY, mouseX, mouseY - shift, guiLeft, guiTop);
+            drawRoundBars();
             tooltipCpu = null;
             GL11.glPopMatrix();
+        }
+
+        /** Overlays the job's round-based overall progress on every CPU row; empty CPUs have no entry. */
+        private void drawRoundBars() {
+            if (roundProgress.isEmpty()) return;
+            int scroll = cpuScroll(this);
+            var cpus = sortedCpus(this);
+            for (int row = 0; row < GuiCraftingCPUTable.CPU_TABLE_SLOTS; row++) {
+                int index = scroll + row;
+                if (index < 0 || index >= cpus.size()) continue;
+                var status = cpus.get(index);
+                if (status == null) continue;
+                long[] rounds = roundProgress.get(status.getSerial());
+                if (rounds == null || rounds[0] <= 0L) continue;
+                float real = Math.max(0f, Math.min(1f, (float) rounds[1] / (float) rounds[0]));
+                int rowTop = 19 + row * GuiCraftingCPUTable.CPU_TABLE_SLOT_HEIGHT;
+                drawGlobalBar(overallShown(real), 9 - GuiCraftingCPUTable.CPU_TABLE_WIDTH, rowTop + 1);
+            }
         }
 
         @Override

@@ -217,8 +217,7 @@ final class ECOCraftingProviderDispatcher {
                 failAmbiguousDispatch(request, provider, "ordinary", failure);
                 return Result.none();
             } catch (RuntimeException failure) {
-                request.job()
-                    .failPermanently("ORDINARY_BATCH_SETTLEMENT_FAILURE");
+                accounting.failPermanently(request, "ORDINARY_BATCH_SETTLEMENT_FAILURE");
                 throw failure;
             }
             if (admission.status() != ECOBatchAdmission.Status.ACCEPTED) {
@@ -233,8 +232,7 @@ final class ECOCraftingProviderDispatcher {
                     budget::recordAcceptedNormalPush,
                     provider);
             } catch (RuntimeException failure) {
-                request.job()
-                    .failPermanently("POST_ACCEPT_ORDINARY_ACCOUNTING_FAILURE");
+                accounting.failPermanently(request, "POST_ACCEPT_ORDINARY_ACCOUNTING_FAILURE");
                 throw failure;
             }
             diagnostics.progress(TickClock.currentTick());
@@ -296,8 +294,7 @@ final class ECOCraftingProviderDispatcher {
             failAmbiguousDispatch(request, provider, "parallel", failure);
             return Result.none();
         } catch (RuntimeException failure) {
-            request.job()
-                .failPermanently("PARALLEL_BATCH_SETTLEMENT_FAILURE");
+            accounting.failPermanently(request, "PARALLEL_BATCH_SETTLEMENT_FAILURE");
             throw failure;
         }
         if (admission.status() != ECOBatchAdmission.Status.ACCEPTED) {
@@ -312,8 +309,7 @@ final class ECOCraftingProviderDispatcher {
         try {
             accounting.apply(request, result, budget::recordAcceptedNormalPush, provider);
         } catch (RuntimeException failure) {
-            request.job()
-                .failPermanently("POST_ACCEPT_PARALLEL_ACCOUNTING_FAILURE");
+            accounting.failPermanently(request, "POST_ACCEPT_PARALLEL_ACCOUNTING_FAILURE");
             throw failure;
         }
         diagnostics.progress(TickClock.currentTick());
@@ -360,11 +356,10 @@ final class ECOCraftingProviderDispatcher {
                 .supportsPushInputsToExternalInventory());
     }
 
-    private static void failAmbiguousDispatch(ECOCraftingDispatchRequest request, ICraftingProvider provider,
-        String path, RuntimeException failure) {
+    private void failAmbiguousDispatch(ECOCraftingDispatchRequest request, ICraftingProvider provider, String path,
+        RuntimeException failure) {
         String reason = "AMBIGUOUS_" + path.toUpperCase(java.util.Locale.ROOT) + "_PROVIDER_OWNERSHIP";
-        request.job()
-            .failPermanently(reason);
+        accounting.failPermanently(request, reason);
         LOGGER.error(
             "ECO {} provider {} threw after dispatch began; the job is suspended without replaying inputs",
             path,

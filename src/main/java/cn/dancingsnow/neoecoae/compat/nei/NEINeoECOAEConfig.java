@@ -6,8 +6,10 @@ import net.minecraftforge.common.MinecraftForge;
 
 import cn.dancingsnow.neoecoae.NeoECOAE;
 import cn.dancingsnow.neoecoae.Tags;
+import cn.dancingsnow.neoecoae.platform.registry.NativeContent;
 import cn.dancingsnow.neoecoae.platform.registry.WorkstationMachines;
 import cn.dancingsnow.neoecoae.platform.ui.crafting.ECOCraftConfirmGui;
+import cn.dancingsnow.neoecoae.platform.ui.upload.PatternUploadClient;
 import codechicken.nei.api.API;
 import codechicken.nei.api.IConfigureNEI;
 import codechicken.nei.event.NEIRegisterHandlerInfosEvent;
@@ -22,6 +24,7 @@ public final class NEINeoECOAEConfig implements IConfigureNEI, IContainerObjectH
     @Override
     public void loadConfig() {
         GuiContainerManager.addObjectHandler(this);
+        API.registerUsageHandler(new ECOCellViewHandler());
         for (var kind : WorkstationRecipeHandler.Kind.values()) {
             var handler = new WorkstationRecipeHandler(kind);
             API.registerRecipeHandler(handler);
@@ -56,6 +59,15 @@ public final class NEINeoECOAEConfig implements IConfigureNEI, IContainerObjectH
 
     @SubscribeEvent
     public void registerHandlerInfo(NEIRegisterHandlerInfosEvent event) {
+        event.registerHandlerInfo(
+            new HandlerInfo.Builder(ECOCellViewHandler.class, getName(), NeoECOAE.MODID)
+                .setDisplayStack(new ItemStack(NativeContent.item("eco_item_storage_cell_16m")))
+                .setWidth(ECOCellViewHandler.WIDTH)
+                .setHeight(ECOCellViewHandler.HEIGHT)
+                .setMultipleWidgetsAllowed(false)
+                .setShowOverlayButton(false)
+                .setShowFavoritesButton(false)
+                .build());
         for (var kind : WorkstationRecipeHandler.Kind.values()) event.registerHandlerInfo(
             new HandlerInfo.Builder(kind.id(), getName(), NeoECOAE.MODID)
                 .setDisplayStack(new ItemStack(WorkstationMachines.WORKSTATION))
@@ -68,6 +80,8 @@ public final class NEINeoECOAEConfig implements IConfigureNEI, IContainerObjectH
 
     @Override
     public boolean shouldShowTooltip(GuiContainer gui) {
+        // The floating upload window keeps drawing this container, but owns all mouse interaction.
+        if (PatternUploadClient.obscures(gui)) return false;
         // Like AE2's native confirmation screen, ECO draws its own tooltip for the hovered material.
         return !(gui instanceof ECOCraftConfirmGui confirm) || confirm.getHoveredStack() == null;
     }

@@ -30,7 +30,6 @@ import cn.dancingsnow.neoecoae.crafting.execution.fastpath.ECOFastPathStacks;
 import cn.dancingsnow.neoecoae.crafting.execution.worker.ECOCraftingJobLifecycle;
 import cn.dancingsnow.neoecoae.multiblock.calculator.NEIntegratedWorkingStationControllerCalculator;
 import cn.dancingsnow.neoecoae.multiblock.cluster.NEIntegratedWorkingStationCluster;
-import cn.dancingsnow.neoecoae.platform.ae2.crafting.ICraftingProvider;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.IPatternDetails;
 import cn.dancingsnow.neoecoae.platform.ae2.grid.GridView;
 import cn.dancingsnow.neoecoae.platform.ae2.grid.IActionSource;
@@ -261,6 +260,10 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         snapshot.putBoolean("formed", formed);
         snapshot.putBoolean("overclocked", overclocked);
         snapshot.putBoolean("activeCooling", activeCooling);
+        snapshot.putString(
+            "coolingProblem",
+            PauseReason.values()[Math
+                .max(0, Math.min(coolingProblemId, PauseReason.values().length - 1))].translationKey);
         snapshot.putBoolean("temperatureEnabled", isTemperatureEnabled());
         snapshot.putBoolean("preheating", isTemperatureEnabled() && preheating);
         snapshot.putBoolean("overheated", isTemperatureEnabled() && overheated);
@@ -410,6 +413,7 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
 
     @Override
     public void setWorking(boolean value) {
+        if (isWorking() == value) return;
         super.setWorking(value);
         updateState(false);
     }
@@ -732,8 +736,7 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         getMainNode().ifPresent(
             (grid, node) -> grid.getTickManager()
                 .wakeDevice(node));
-        // Tank contents do not change the advertised pattern set. Notifying AE2 here rebuilds the whole
-        // grid's crafting catalog, and the cooling tank is drained once per processing tick.
+        // Runtime contents leave the advertised recipes unchanged; only wake processing and sync the local UI.
     }
 
     @Override
@@ -858,7 +861,7 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
             }
         }
         PendingBatch first = pendingBatches.peekFirst();
-        setProcessingTime(first == null ? 0 : first.progress);
+        if (first != null) setProcessingTime(first.progress);
     }
 
     public Component getRecipeText() {
@@ -1344,16 +1347,12 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         return true;
     }
 
-    private void refundProcessingPower(IEnergySource source, double amount) {
-        double remaining = source instanceof IEnergyGrid network ? network.injectPower(amount, Actionable.MODULATE)
-            : injectAEPower(amount, Actionable.MODULATE);
-        if (remaining > 0.0D && source != this) {
-            remaining = injectAEPower(remaining, Actionable.MODULATE);
-        } else if (remaining > 0.0D) {
-            GridView grid = getMainNode().getGrid();
-            if (grid != null) remaining = grid.getEnergyService()
-                .injectPower(remaining, Actionable.MODULATE);
+    private void refundProcessingPower(IEnergySource source, double rawAmount) {
+        if (source instanceof IEnergyGrid network) {
+            network.injectPower(rawAmount, Actionable.MODULATE);
+            return;
         }
+        double remaining = returnLocalPower(rawAmount);
         if (remaining > 0.0D) {
             pendingPowerRefund += remaining;
             setChanged();
@@ -1362,16 +1361,21 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
 
     private void retryPendingPowerRefund() {
         if (pendingPowerRefund <= 0.0D) return;
-        double remaining = injectAEPower(pendingPowerRefund, Actionable.MODULATE);
-        if (remaining > 0.0D) {
-            GridView grid = getMainNode().getGrid();
-            if (grid != null) remaining = grid.getEnergyService()
-                .injectPower(remaining, Actionable.MODULATE);
-        }
+        double remaining = returnLocalPower(pendingPowerRefund);
         if (remaining != pendingPowerRefund) {
             pendingPowerRefund = remaining;
             setChanged();
         }
+    }
+
+    private double returnLocalPower(double rawAmount) {
+        double remaining = injectAEPower(rawAmount, Actionable.MODULATE);
+        if (remaining <= 0.0D) return 0.0D;
+        GridView grid = getMainNode().getGrid();
+        if (grid == null) return remaining;
+        grid.getEnergyService()
+            .injectPower(remaining, Actionable.MODULATE);
+        return 0.0D;
     }
 
     private LargeWorkstationThermal.State thermalState() {
@@ -1563,8 +1567,6 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
         if (next != null) {
             setWorking(true);
         }
-        // Finishing a batch changes runtime state, not the advertised pattern set; a pattern-change event
-        // here would rebuild the whole grid's crafting catalog on every completed batch.
     }
 
     private boolean deliverBatchOutputs(PendingBatch batch) {
@@ -1643,7 +1645,8 @@ public class ECOLargeIntegratedWorkingStationBlockEntity extends ECOIntegratedWo
     private void requestCommunicationProviderUpdate() {
         if (cluster != null && cluster
             .getCommunication() instanceof ECOLargeIntegratedWorkingStationInterfaceBlockEntity communication) {
-            ICraftingProvider.requestUpdate(communication.getMainNode());
+            communication.getWorkstationProvider()
+                .updatePatterns();
         }
     }
 

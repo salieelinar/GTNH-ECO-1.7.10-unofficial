@@ -84,9 +84,17 @@ public class ECOLargeIntegratedWorkingStationInterfaceBlockEntity
     }
 
     @Override
+    public int getPatternPriority() {
+        return workstationProvider.getPriority();
+    }
+
+    @Override
     public void provideCrafting(ICraftingProviderHelper helper) {
-        for (IPatternDetails pattern : getAvailablePatterns()) if (pattern instanceof NativePatternDetails)
+        for (IPatternDetails pattern : getAvailablePatterns()) if (pattern instanceof NativePatternDetails) {
+            ((NativePatternDetails) pattern).nativeDetails()
+                .setPriority(getPatternPriority());
             helper.addCraftingOption(this, ((NativePatternDetails) pattern).nativeDetails());
+        }
     }
 
     @Override
@@ -233,7 +241,6 @@ public class ECOLargeIntegratedWorkingStationInterfaceBlockEntity
         if (worldObj != null && !worldObj.isRemote) {
             workstationProvider.refreshRecipes();
             workstationProvider.updateRedstoneState();
-            workstationProvider.flushProviderUpdate();
         }
     }
 
@@ -265,6 +272,9 @@ public class ECOLargeIntegratedWorkingStationInterfaceBlockEntity
     public void addAdditionalDrops(cn.dancingsnow.neoecoae.platform.minecraft.WorldView world, BlockPos pos,
         List<ItemStack> drops) {
         super.addAdditionalDrops(world, pos, drops);
+        if (workstationProvider.getLegacyUpgrade() != null) drops.add(
+            workstationProvider.getLegacyUpgrade()
+                .copy());
         for (int slot = 0; slot < workstationProvider.getPatternInv()
             .getSizeInventory(); slot++) {
             ItemStack stack = workstationProvider.getPatternInv()

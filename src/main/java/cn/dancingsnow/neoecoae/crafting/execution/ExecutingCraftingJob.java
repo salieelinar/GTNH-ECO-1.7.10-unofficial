@@ -159,7 +159,9 @@ public class ExecutingCraftingJob {
 
         for (var entry : plan.patternTimes()
             .entrySet()) {
-            tasks.computeIfAbsent(entry.getKey(), p -> new ECOExecutionTaskProgress()).value += entry.getValue();
+            var progress = tasks.computeIfAbsent(entry.getKey(), p -> new ECOExecutionTaskProgress());
+            progress.value += entry.getValue();
+            progress.totalRounds += entry.getValue();
             tasksRevision++;
             for (var output : entry.getKey()
                 .getOutputs()) {
@@ -287,6 +289,9 @@ public class ExecutingCraftingJob {
             if (details != null) {
                 final ECOExecutionTaskProgress tp = new ECOExecutionTaskProgress();
                 tp.value = item.getLong(NBT_CRAFTING_PROGRESS);
+                // Older saves lack the planned round count; treat the remaining count as the total so the
+                // round-based status bar restarts at 0 instead of dividing by zero.
+                tp.totalRounds = item.contains("totalRounds") ? item.getLong("totalRounds") : tp.value;
                 if (item.contains("exactRemaining")) tp.setExact(
                     new java.math.BigInteger(item.getString("exactTotal")),
                     new java.math.BigInteger(item.getString("exactRemaining")));
@@ -442,6 +447,7 @@ public class ExecutingCraftingJob {
                 .getDefinition()
                 .toTag(registries);
             item.putLong(NBT_CRAFTING_PROGRESS, e.getValue().value);
+            item.putLong("totalRounds", e.getValue().totalRounds);
             if (e.getValue()
                 .totalExact() != null) {
                 item.putString(
