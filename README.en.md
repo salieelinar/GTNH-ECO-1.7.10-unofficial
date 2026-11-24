@@ -19,6 +19,12 @@ Provides expandable storage, crafting, and computation multiblocks for ME networ
 - Does not apply to: the assembler matrix (its switch is always off by design) or GT CRIB / TenkeiTech hatches (no switch).
 - Trade-off: lower throughput on that interface; intended only for material-eating machines. Strict mode only affects ECO's own dispatch.
 
+## Overall Progress (1.0.10)
+
+- Counted in crafting rounds (rounds whose outputs were recovered / total rounds), not in material amounts.
+- The displayed value is y = 1 − ln(1+9(1−x)) / ln(10) for the real ratio x, suppressing early rounds and amplifying the slow final ones. **Why**: early rounds are usually quick while the last few take the longest, so a linear bar jumps high early on and then sits still near the end.
+- Per-round progress appears only when that round's outputs have actually been received; two jobs sharing the same material no longer report each other's rounds.
+
 ## Version Support
 
 <div align="center">

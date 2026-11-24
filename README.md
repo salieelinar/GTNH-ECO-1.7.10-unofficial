@@ -4,7 +4,7 @@
 
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
-> **个人修复版**：基于上游 7.3.12，保留上游全部修复与优化，并加入全局进度条等本地改动。改动见 [CHANGELOG](CHANGELOG.md)，下载见 [Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases)。
+> **个人修复版**：基于上游 7.3.13，保留上游全部修复与优化，并加入合成状态总体进度、严格一份一份发等本地改动。改动见 [CHANGELOG](CHANGELOG.md)，下载见 [Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases)。
 
 - 稳定版：[GitHub Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases/latest)
 - 开发版（Dev Build）：[最新开发构建](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases/tag/dev-build)（仅供测试，可能不稳定，随 dev 分支更新）
@@ -20,6 +20,12 @@
 - 适用：AE2 接口、GTNL 超级样板总成/超级接口，关掉它们自己的「样板优化」即生效。
 - 不适用：装配矩阵（它的开关恒关闭是 GTNL 排除自家优化器的语义，不是用户开关）、GT 原版 CRIB / TenkeiTech 舱（没有这个开关）。
 - 代价：该接口吞吐会下降，只建议给会吞材料的机器用；严格模式只在 ECO 的合成派发内生效。
+
+## 合成状态总体进度（1.0.10）
+
+- 口径：按合成轮次算——已回收产物的轮次 / 总轮次，不用材料量。
+- 曲线：显示值按 y = 1 − ln(1+9(1−x)) / ln(10) 换算（x 是真实轮次比例），压制前期、放大后期。**为什么**：合成通常前期快、最后几轮最耗时，线性显示会在前期冲高、末期长时间卡住；换算后临近完成时涨得更快。
+- 单轮进度只在真正收到本轮产物时显示，两个任务共用同一材料时不再互相误报。
 
 后续修复todolist
 1、完善镜像总成检测机制。
