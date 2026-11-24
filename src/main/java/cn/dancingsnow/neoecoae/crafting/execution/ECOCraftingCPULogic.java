@@ -97,6 +97,12 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
     private final ECOCraftingPlanUpdater planUpdater;
     private final ECOVanillaCraftingExecutor vanillaExecutor;
     final ECOBigOrderController bigOrder = new ECOBigOrderController(this);
+    /**
+     * Per-output receipt watchdog for the status page: a job that shares a recipe with another job must stop
+     * showing the machine's cycle once a full cycle passes without this job receiving its own output.
+     */
+    private final java.util.Map<AEKey, CycleReceiptGate> cycleReceiptGates = new java.util.HashMap<>();
+    private static final long CYCLE_RECEIPT_GRACE_TICKS = 20L;
 
     public ECOCraftingCPULogic(ECOCraftingCPU cpu) {
         this.cpu = cpu;
@@ -687,7 +693,11 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
             return cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress.EMPTY;
         if (getWaitingFor(output) <= 0 && getPendingOutputs(output) <= 0)
             return cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress.EMPTY;
-        var sampled = processingMonitor.sample(world, output, world.getTotalWorldTime(), priority);
+        var sampled = hideStaleCycle(
+            current,
+            output,
+            processingMonitor.sample(world, output, world.getTotalWorldTime(), priority),
+            world.getTotalWorldTime());
         java.math.BigInteger total;
         java.math.BigInteger completed;
         if (current.finalOutput != null && output.equals(current.finalOutput.what())) {
@@ -707,6 +717,61 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
         return sampled.withGlobalProgress(Math.min(Math.nextDown(1.0F), fraction));
     }
 
+    /**
+     * Two jobs awaiting the same key both match the same machine sample, but only the job that is actually being fed
+     * receives outputs. A cycle shown for a full machine duration without any receipt therefore belongs to another
+     * job: hide the per-cycle progress but keep the machine row and the cumulative share. A receipt re-arms it, so
+     * the next cycle is judged again.
+     */
+    private cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress hideStaleCycle(
+        ExecutingCraftingJob current, AEKey output,
+        cn.dancingsnow.neoecoae.crafting.display.processing.ECOProcessingProgress sampled, long now) {
+        int cycleDuration = 0;
+        for (var machine : sampled.machines()) cycleDuration = Math.max(cycleDuration, machine.durationTicks());
+        if (cycleDuration <= 0) return sampled;
+        long receipt = cycleReceipt(current, output);
+        CycleReceiptGate gate = cycleReceiptGates.computeIfAbsent(output, key -> new CycleReceiptGate());
+        if (!gate.initialized) {
+            gate.initialized = true;
+            gate.lastReceipt = receipt;
+            gate.armedAt = now;
+        } else if (receipt > gate.lastReceipt) {
+            gate.lastReceipt = receipt;
+            gate.armedAt = now;
+            gate.armed = true;
+        }
+        if (gate.armed && now - gate.armedAt > cycleDuration + CYCLE_RECEIPT_GRACE_TICKS) gate.armed = false;
+        if (gate.armed) return sampled;
+        return sampled.withCycleHidden(
+            cn.dancingsnow.neoecoae.platform.minecraft.Component
+                .translatable("gui.neoecoae.processing.awaiting_output"));
+    }
+
+    /** Physical receipts of this key: delivered amount for the final output, otherwise the produced ledger. */
+    private static long cycleReceipt(ExecutingCraftingJob current, AEKey output) {
+        if (current.finalOutput != null && output.equals(current.finalOutput.what())) {
+            long total = current.finalOutput.amount();
+            return total - Math.max(0L, current.remainingAmount);
+        }
+        var produced = current.producedTotals.get(output);
+        return produced == null ? 0L
+            : cn.dancingsnow.neoecoae.crafting.adapter.ae2.ECOExactCraftingPlan.bounded(produced);
+    }
+
+    private static final class CycleReceiptGate {
+
+        long lastReceipt;
+        long armedAt;
+        boolean armed = true;
+        boolean initialized;
+    }
+
+    /**
+     * Adds the job-level share of this output that is already done. The final output counts delivered items only;
+     * every other output counts physically returned items, because dispatched-but-not-yet-produced batches must not
+     * count as progress (the machines may still be working on them).
+     */
+
     ECOCraftingEnergyTransaction energyTransactionForPersistence() {
         return energyTransaction;
     }
@@ -718,6 +783,7 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
     void setJobFromPersistence(@Nullable ExecutingCraftingJob restoredJob) {
         releaseExactRefill();
         planUpdater.reset();
+        cycleReceiptGates.clear();
         this.job = restoredJob;
         viewRevision++;
         exactInventory().setEnabled(restoredJob != null && restoredJob.exactOrder);
@@ -727,6 +793,7 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
         releaseExactRefill();
         planUpdater.reset();
         vanillaExecutor.reset();
+        cycleReceiptGates.clear();
         this.job = nextJob;
         viewRevision++;
         exactInventory().setEnabled(nextJob != null && nextJob.exactOrder);

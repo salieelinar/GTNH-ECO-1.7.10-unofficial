@@ -1446,6 +1446,7 @@ gui.neoecoae.crafting_status.processing.awaiting_dispatch=等待该步骤投料�
 gui.neoecoae.crafting_status.processing.page=明细 %s / %s 页 · Shift + 滚轮翻页
 gui.neoecoae.crafting_status.processing.parallel=实际并行：%s
 gui.neoecoae.crafting_status.processing.parallel_cycle=实际并行：%s（每并行产出 %s；本轮 %s）
+gui.neoecoae.processing.awaiting_output=等待本轮产物回收
 gui.neoecoae.crafting_status.processing.cycle=本轮 %s%%
 gui.neoecoae.duration.sec=%s秒
 gui.neoecoae.duration.min=%s分%s秒

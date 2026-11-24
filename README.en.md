@@ -6,6 +6,9 @@
 
 This is the official Minecraft 1.7.10 version of Neo ECO AE Extension (ECO), built for GT New Horizons.
 
+- Stable: [GitHub Releases](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases/latest)
+- Dev Build: [latest development build](https://github.com/salieelinar/GTNH-ECO-1.7.10-unofficial/releases/tag/dev-build) (testing only; may be unstable; follows the dev branch)
+
 Provides expandable storage, crafting, and computation multiblocks for ME networks, supporting centralized storage, batch manufacturing, and complex job planning.
 
 ## Version Support

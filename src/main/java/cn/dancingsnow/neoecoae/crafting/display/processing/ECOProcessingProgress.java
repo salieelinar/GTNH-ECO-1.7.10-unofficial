@@ -72,6 +72,30 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
         return summarize(machines, 0);
     }
 
+    /**
+     * Hides the per-cycle progress of every machine while keeping the rows: the job is not receiving this output,
+     * so the cycle belongs to another job sharing the same recipe. The cumulative progress stays untouched.
+     */
+    public ECOProcessingProgress withCycleHidden(Component reason) {
+        List<Machine> hidden = new java.util.ArrayList<>(machines.size());
+        for (var machine : machines) {
+            hidden.add(
+                new Machine(machine.name(), machine.location(), machine.recipe(), 0, 0, 0, 0, State.WAITING, reason));
+        }
+        return new ECOProcessingProgress(
+            0,
+            false,
+            State.WAITING,
+            machineCount,
+            detailPage,
+            refreshing,
+            hidden,
+            globalProgress,
+            hasGlobalProgress,
+            sharedMachineCount);
+    }
+    }
+
     public static ECOProcessingProgress summarize(List<Machine> machines, int sharedMachineCount) {
         double progress = 0, duration = 0;
         boolean running = false, waiting = false, paused = false, unavailable = false;
