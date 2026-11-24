@@ -92,13 +92,20 @@ public class NEComputationNetworkCluster {
         return !members.isEmpty() && cn.dancingsnow.neoecoae.platform.jdk.JdkCompat.first(members) == member;
     }
 
+    /** Network-wide buff: 1 host = x1, 2 hosts = x8, 3 = x27, 4 = x64 ... 8 = x512. */
+    public long getGroupMultiplier() {
+        int count = members.size();
+        if (count <= 1) return 1;
+        long multiplier = count;
+        return multiplier * multiplier * multiplier;
+    }
+
     private long sumMultiplied(ToLongFunction<NEComputationCluster> getter) {
         long total = 0;
         for (NEComputationCluster member : members) {
-            long multiplier = members.size() > 1 ? member.getNetworkMultiplier() : 1;
-            total = NEMath.saturatingAdd(total, NEMath.saturatingMultiply(getter.applyAsLong(member), multiplier));
+            total = NEMath.saturatingAdd(total, getter.applyAsLong(member));
         }
-        return total;
+        return NEMath.saturatingMultiply(total, getGroupMultiplier());
     }
 
     /**
