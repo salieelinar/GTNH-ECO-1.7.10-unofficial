@@ -86,9 +86,11 @@ final class ECOProcessingPatternDispatcher {
 
     /** Whether a scaled provider may still receive a submission for this pattern this tick. */
     boolean mayAttemptScaled(ICraftingProvider provider, IPatternDetails pattern) {
-        return provider instanceof NativeCraftingProvider nativeProvider && (!isScaledAttemptBudgetExhausted(pattern)
-            && (nativeProvider.supportsCountedBatch(pattern) || nativeProvider.supportsScaledProcessing())
-            || nativeProvider.canDeliverCircuitInstantly(pattern)) && !nativeProvider.strictSerialMode();
+        return provider instanceof NativeCraftingProvider nativeProvider
+            && (!isScaledAttemptBudgetExhausted(pattern)
+                && (nativeProvider.supportsCountedBatch(pattern) || nativeProvider.supportsScaledProcessing())
+                || nativeProvider.canDeliverCircuitInstantly(pattern))
+            && !nativeProvider.strictSerialMode();
     }
 
     /** A strict host never batches; the switch is read live so eligibility caches cannot bypass it. */

@@ -94,7 +94,6 @@ public record ECOProcessingProgress(float progress, boolean hasProgress, State s
             hasGlobalProgress,
             sharedMachineCount);
     }
-    }
 
     public static ECOProcessingProgress summarize(List<Machine> machines, int sharedMachineCount) {
         double progress = 0, duration = 0;
