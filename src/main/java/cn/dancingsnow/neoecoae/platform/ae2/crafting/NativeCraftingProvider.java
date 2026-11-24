@@ -47,6 +47,15 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
     private static final String ASSEMBLER_MATRIX = "com.science.gtnl.common.machine.multiblock.AssemblerMatrix";
     private static final String ME_CHISEL = "com.science.gtnl.common.block.blocks.tile.TileEntityMEChisel";
     private static final String SUPER_CRAFTING_INPUT_HATCH = "com.science.gtnl.common.machine.hatch.SuperCraftingInputHatchME";
+    private static final ClassValue<Boolean> GTNL_SUPER_PATTERN_HATCH = new ClassValue<>() {
+
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass())
+                if (SUPER_CRAFTING_INPUT_HATCH.equals(c.getName())) return true;
+            return false;
+        }
+    };
     private static final String GT_CRAFTING_INPUT_HATCH = "gregtech.common.tileentities.machines.MTEHatchCraftingInputME";
     private static final String GT_INPUT_BUS = "gregtech.api.metatileentity.implementations.MTEHatchInputBus";
     private static final String GT_INPUT_HATCH = "gregtech.api.metatileentity.implementations.MTEHatchInput";
@@ -208,7 +217,23 @@ public final class NativeCraftingProvider implements ICraftingProvider, NativePr
      * Interface settings can still require single-copy pushes for a compatible medium.
      */
     public boolean supportsScaledProcessing() {
+        // A host whose user switch disables pattern optimization is dispatched one copy at a time.
+        if (strictSerialMode()) return false;
         return singleCopyReason() == null;
+    }
+
+    /**
+     * The host interface's pattern-optimization switch, read live. Strict serial dispatch only applies to hosts
+     * that own a user switch: AE2 interfaces (block, part, AE2FC dual interface) and GTNL's super pattern-input
+     * hatch. GT's own crafting input hatch has no switch, and GTNL's assembler matrix always reports false on
+     * purpose to exclude itself from AE2's optimizer, so neither is treated as a strict host.
+     */
+    public boolean strictSerialMode() {
+        if (medium instanceof appeng.helpers.DualityInterface duality) {
+            return duality.getHost() instanceof IInterfaceViewable host && !host.allowsPatternOptimization();
+        }
+        return medium instanceof IInterfaceViewable viewable && GTNL_SUPER_PATTERN_HATCH.get(viewable.getClass())
+            && !viewable.allowsPatternOptimization();
     }
 
     @Nullable

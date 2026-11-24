@@ -22,6 +22,7 @@ import cn.dancingsnow.neoecoae.platform.ae2.crafting.IPatternDetails;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativePatternDetails;
 import cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeProviderAdapters;
+import cn.dancingsnow.neoecoae.platform.ae2.key.AEKey;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 
@@ -45,6 +46,8 @@ final class ECOProcessingPatternDispatcher {
     private final ECOCraftingDispatchAccounting accounting;
     private final Map<ICraftingProvider, Reference2ObjectOpenHashMap<IPatternDetails, ProbeState>> states = new Reference2ObjectOpenHashMap<>();
     private final Map<ICraftingProvider, Reference2ObjectOpenHashMap<IPatternDetails, Eligibility>> eligibility = new Reference2ObjectOpenHashMap<>();
+    /** Strict serial mode: one outstanding copy per provider until its outputs are delivered to the job. */
+    private final Map<ICraftingProvider, StrictLock> strictLocks = new java.util.IdentityHashMap<>();
     private final Reference2IntOpenHashMap<IPatternDetails> patternAttempts = new Reference2IntOpenHashMap<>();
     private long tick = Long.MIN_VALUE;
     private int attempts;
@@ -85,7 +88,40 @@ final class ECOProcessingPatternDispatcher {
     boolean mayAttemptScaled(ICraftingProvider provider, IPatternDetails pattern) {
         return provider instanceof NativeCraftingProvider nativeProvider && (!isScaledAttemptBudgetExhausted(pattern)
             && (nativeProvider.supportsCountedBatch(pattern) || nativeProvider.supportsScaledProcessing())
-            || nativeProvider.canDeliverCircuitInstantly(pattern));
+            || nativeProvider.canDeliverCircuitInstantly(pattern)) && !nativeProvider.strictSerialMode();
+    }
+
+    /** A strict host never batches; the switch is read live so eligibility caches cannot bypass it. */
+    boolean isStrictProvider(ICraftingProvider provider) {
+        return provider instanceof cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider nativeProvider
+            && nativeProvider.strictSerialMode();
+    }
+
+    /** True while a strict provider must not receive another submission: one copy is outstanding. */
+    boolean isStrictBlocked(ICraftingProvider provider, ECOCraftingDispatchRequest request) {
+        if (!isStrictProvider(provider)) return false;
+        StrictLock lock = strictLocks.get(provider);
+        if (lock == null) return false;
+        if (lock.job != request.job() || request.job().suspended || lock.satisfied(request.job())) {
+            strictLocks.remove(provider);
+            return false;
+        }
+        return true;
+    }
+
+    /** Records the single copy a strict provider just accepted; released when its outputs return to the job. */
+    void recordStrictPush(ICraftingProvider provider, ECOCraftingDispatchRequest request) {
+        if (!isStrictProvider(provider)) return;
+        var expected = new java.util.LinkedHashMap<AEKey, Long>();
+        for (var entry : request.outputs()) {
+            if (entry.getLongValue() > 0) expected.put(entry.getKey(), entry.getLongValue());
+        }
+        if (expected.isEmpty()) return;
+        var baseline = new java.util.HashMap<AEKey, java.math.BigInteger>();
+        for (var key : expected.keySet()) {
+            baseline.put(key, request.job().producedTotals.getOrDefault(key, java.math.BigInteger.ZERO));
+        }
+        strictLocks.put(provider, new StrictLock(request.job(), expected, baseline));
     }
 
     boolean claimFallbackAttempt(IPatternDetails pattern) {
@@ -226,6 +262,7 @@ final class ECOProcessingPatternDispatcher {
         double onePower, IEnergyGrid service, Consumer<ICraftingProvider> mark,
         ECOCraftingProviderDispatcher.ECOCraftingNormalPush normalPush) {
         if (!scaledTransportAllowed(provider) || isScaledAttemptBudgetExhausted(request.pattern())
+            || isStrictProvider(provider)
             || isScaledDispatchDeferred(request, provider)
             || !supportsScaledDispatchCached(request, provider)) return null;
         var nativeProvider = (NativeCraftingProvider) provider;
@@ -366,6 +403,8 @@ final class ECOProcessingPatternDispatcher {
             return false;
         if (provider instanceof ECOParallelCraftingProvider) return false;
         IPatternDetails base = ECOPatternWrappers.unwrap(request.pattern());
+        var nativeProvider = (cn.dancingsnow.neoecoae.platform.ae2.crafting.NativeCraftingProvider) provider;
+        if (nativeProvider.strictSerialMode()) return false;
         return base == request.pattern() && isProcessingPattern(base)
             && request.pattern()
                 .getInputs().length > 0
@@ -380,6 +419,29 @@ final class ECOProcessingPatternDispatcher {
 
     @com.github.bsideup.jabel.Desugar
     private record Eligibility(long tick, boolean supported) {}
+
+    /** Snapshot of one strict push: expected outputs plus the job totals before the push. */
+    private static final class StrictLock {
+
+        final ExecutingCraftingJob job;
+        final Map<AEKey, Long> expected;
+        final Map<AEKey, java.math.BigInteger> baseline;
+
+        StrictLock(ExecutingCraftingJob job, Map<AEKey, Long> expected, Map<AEKey, java.math.BigInteger> baseline) {
+            this.job = job;
+            this.expected = expected;
+            this.baseline = baseline;
+        }
+
+        boolean satisfied(ExecutingCraftingJob current) {
+            for (var entry : expected.entrySet()) {
+                var delivered = current.producedTotals.getOrDefault(entry.getKey(), java.math.BigInteger.ZERO)
+                    .subtract(baseline.getOrDefault(entry.getKey(), java.math.BigInteger.ZERO));
+                if (delivered.compareTo(java.math.BigInteger.valueOf(entry.getValue())) < 0) return false;
+            }
+            return true;
+        }
+    }
 
     /** History survives visits; growth/recovery flags belong only to the current visit. */
     static final class ProbeState {

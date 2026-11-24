@@ -107,6 +107,11 @@ final class ECOCraftingProviderDispatcher {
 
         while (providers.hasNext()) {
             var provider = providers.next();
+            // Strict serial hosts stay idle until the outstanding copy's outputs are delivered to the job.
+            if (processing.isStrictBlocked(provider, originalRequest)) continue;
+            boolean uncapped = isUnboundedHatch(provider);
+            long limit = uncapped ? Long.MAX_VALUE : cappedLimit;
+            var request = uncapped ? originalRequest : cappedRequest;
             boolean blocking = NativeProviderAdapters.isEnabled(provider);
             if (!blocking && request.job().exactOrder) {
                 var exact = cappedLimit == Long.MAX_VALUE
@@ -252,6 +257,7 @@ final class ECOCraftingProviderDispatcher {
                     request.job().singleProcessingReason = reason == null ? "single_copy" : reason;
                 }
             }
+            processing.recordStrictPush(provider, request);
             return Result.accepted(1L, false);
         }
 
