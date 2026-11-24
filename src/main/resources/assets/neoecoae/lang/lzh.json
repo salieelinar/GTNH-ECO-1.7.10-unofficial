@@ -1399,6 +1399,8 @@
   "gui.neoecoae.computation.ui.card.idle": "閒",
   "gui.neoecoae.computation.ui.card.multiplier": "倍數",
   "gui.neoecoae.computation.ui.card.parallel_title": "並行",
+  "gui.neoecoae.computation.ui.card.overall_progress": "總體進度",
+  "gui.neoecoae.computation.ui.card.rounds": "輪次：%s / %s",
   "gui.neoecoae.computation.ui.card.processing_step": "處理之步",
   "gui.neoecoae.computation.ui.card.state.stopped": "已止",
   "gui.neoecoae.computation.ui.card.storage_title": "CPU 之藏",

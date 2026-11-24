@@ -1399,6 +1399,8 @@
   "gui.neoecoae.computation.ui.card.idle": "ǝןpI",
   "gui.neoecoae.computation.ui.card.multiplier": "ɹǝıןdıʇןnW",
   "gui.neoecoae.computation.ui.card.parallel_title": "ןǝןןɐɹɐԀ",
+  "gui.neoecoae.computation.ui.card.overall_progress": "Overall Progress",
+  "gui.neoecoae.computation.ui.card.rounds": "Rounds: %s / %s",
   "gui.neoecoae.computation.ui.card.processing_step": "dǝʇS buıssǝɔoɹԀ",
   "gui.neoecoae.computation.ui.card.state.stopped": "pǝddoʇS",
   "gui.neoecoae.computation.ui.card.storage_title": "ǝbɐɹoʇS ∩ԀƆ",

@@ -718,6 +718,45 @@ public class ECOCraftingCPULogic implements CraftingJobPersistenceContext, ECOCr
     }
 
     /**
+     * Round-based overall progress of the current job for the status page: total planned crafts and the crafts whose
+     * primary output has physically returned. A CPU without a job (the ever-idle ECO CPU) returns null.
+     */
+    public long[] roundProgress() {
+        var current = job;
+        if (current == null) return null;
+        long total = 0L;
+        long completed = 0L;
+        for (var entry : current.tasks.entrySet()) {
+            var task = entry.getValue();
+            long taskTotal = task.totalRounds;
+            if (taskTotal <= 0L) continue;
+            total = saturateAdd(total, taskTotal);
+            var primary = entry.getKey()
+                .getPrimaryOutput();
+            if (primary == null || primary.amount() <= 0L) continue;
+            long produced = producedForRounds(current, primary.what());
+            completed = saturateAdd(completed, Math.min(taskTotal, produced / primary.amount()));
+        }
+        if (total <= 0L) return null;
+        return new long[] { total, Math.min(total, completed) };
+    }
+
+    /** Physical receipts of the task's primary output; the final output counts deliveries, not the produced ledger. */
+    private static long producedForRounds(ExecutingCraftingJob current, AEKey key) {
+        if (current.finalOutput != null && key.equals(current.finalOutput.what())) {
+            return Math.max(0L, current.finalOutput.amount() - Math.max(0L, current.remainingAmount));
+        }
+        var produced = current.producedTotals.get(key);
+        return produced == null ? 0L
+            : cn.dancingsnow.neoecoae.crafting.adapter.ae2.ECOExactCraftingPlan.bounded(produced);
+    }
+
+    private static long saturateAdd(long left, long right) {
+        long result = left + right;
+        return result < left ? Long.MAX_VALUE : result;
+    }
+
+    /**
      * Two jobs awaiting the same key both match the same machine sample, but only the job that is actually being fed
      * receives outputs. A cycle shown for a full machine duration without any receipt therefore belongs to another
      * job: hide the per-cycle progress but keep the machine row and the cumulative share. A receipt re-arms it, so

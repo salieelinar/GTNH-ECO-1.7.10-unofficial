@@ -3,6 +3,8 @@ package cn.dancingsnow.neoecoae.crafting.execution;
 public final class ECOExecutionTaskProgress {
 
     public long value;
+    /** Total planned crafts of this task; the round-progress denominator for the status page. */
+    public long totalRounds;
     private java.math.BigInteger exactTotal;
     private java.math.BigInteger exactRemaining;
 
@@ -12,6 +14,7 @@ public final class ECOExecutionTaskProgress {
         exactTotal = total;
         exactRemaining = remaining;
         value = cn.dancingsnow.neoecoae.crafting.adapter.ae2.ECOExactCraftingPlan.bounded(remaining);
+        totalRounds = cn.dancingsnow.neoecoae.crafting.adapter.ae2.ECOExactCraftingPlan.bounded(total);
     }
 
     java.math.BigInteger remainingExact() {
